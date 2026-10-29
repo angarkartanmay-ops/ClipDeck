@@ -13,8 +13,9 @@
     "licenses": "license-checker --production --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;OFL-1.1;Apache-2.0 OR MIT;MIT OR Apache-2.0\" --excludePrivatePackages"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/hubot-sans": "^5.3.0",
+    "@fontsource-variable/martian-mono": "^5.3.0",
+    "@fontsource-variable/mona-sans": "^5.3.0",
     "@tauri-apps/api": "^2"
   },
   "devDependencies": {

@@ -35,7 +35,7 @@ const rust = [...seen]
   .map((p) => ({ name: p.name, version: p.version, license: p.license ?? "(see crate)", repo: p.repository ?? "" }))
   .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
 
-const npm = ["@tauri-apps/api", "@fontsource-variable/geist", "@fontsource-variable/geist-mono"].map((name) => {
+const npm = ["@tauri-apps/api", "@fontsource-variable/mona-sans", "@fontsource-variable/hubot-sans", "@fontsource-variable/martian-mono"].map((name) => {
   const pkg = JSON.parse(readFileSync(`node_modules/${name}/package.json`, "utf8"));
   return { name, version: pkg.version, license: pkg.license, repo: (pkg.repository?.url ?? pkg.repository ?? "").replace(/^git\+/, "") };
 });
@@ -52,8 +52,9 @@ are available in each project's repository and in the crate/package sources.
 No GPL, AGPL or LGPL components are included; this is enforced in CI by
 \`cargo deny\` (see \`src-tauri/deny.toml\`) and \`npm run licenses\`.
 
-The Geist and Geist Mono typefaces (Vercel) are bundled under the SIL Open
-Font License 1.1, which permits embedding them in software.
+The Mona Sans and Hubot Sans typefaces (GitHub) and Martian Mono (Evil
+Martians) are bundled under the SIL Open Font License 1.1, which permits
+embedding them in software.
 
 The bundled SQLite library (via \`libsqlite3-sys\`) is in the public domain.
 Microsoft Edge WebView2 Runtime is not redistributed with ClipDeck; it is part

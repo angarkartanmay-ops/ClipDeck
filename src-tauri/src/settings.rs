@@ -27,14 +27,14 @@ pub struct Settings {
     pub paste_on_select: bool,
     /// Put the previous clipboard content back after pasting.
     pub restore_clipboard: bool,
-    /// "cursor" or "center".
-    pub position: String,
+    /// "fullscreen" (overlay covering the monitor) or "window" (movable,
+    /// resizable panel).
+    pub display_mode: String,
+    /// Last position and size of the window mode, in physical pixels.
+    pub window_bounds: Option<WindowBounds>,
     /// Hide instead of destroying the dashboard: faster to open, more memory.
     pub keep_dashboard_warm: bool,
 
-    /// "system", "light" or "dark".
-    pub theme: String,
-    pub accent: String,
     /// "system", "on" or "off".
     pub reduce_motion: String,
 
@@ -62,10 +62,9 @@ impl Default for Settings {
             slot_modifiers: "Ctrl+Alt".into(),
             paste_on_select: true,
             restore_clipboard: false,
-            position: "cursor".into(),
+            display_mode: "fullscreen".into(),
+            window_bounds: None,
             keep_dashboard_warm: false,
-            theme: "system".into(),
-            accent: "#4a86e8".into(),
             reduce_motion: "system".into(),
             capture_images: true,
             capture_files: true,
@@ -76,6 +75,14 @@ impl Default for Settings {
             autostart: true,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 fn default_blocklist() -> Vec<String> {
@@ -138,20 +145,11 @@ impl Settings {
         self.history_limit = self.history_limit.clamp(10, 200);
         self.max_disk_mb = self.max_disk_mb.clamp(50, 10_000);
         self.max_item_mb = self.max_item_mb.clamp(1, 512);
-        if !matches!(self.position.as_str(), "cursor" | "center") {
-            self.position = "cursor".into();
-        }
-        if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
-            self.theme = "system".into();
+        if !matches!(self.display_mode.as_str(), "fullscreen" | "window") {
+            self.display_mode = "fullscreen".into();
         }
         if !matches!(self.reduce_motion.as_str(), "system" | "on" | "off") {
             self.reduce_motion = "system".into();
-        }
-        let accent_ok = self.accent.len() == 7
-            && self.accent.starts_with('#')
-            && self.accent[1..].chars().all(|c| c.is_ascii_hexdigit());
-        if !accent_ok {
-            self.accent = Settings::default().accent;
         }
         self.blocklist = self
             .blocklist
@@ -160,6 +158,10 @@ impl Settings {
             .filter(|s| !s.is_empty())
             .collect();
         self
+    }
+
+    pub fn is_window_mode(&self) -> bool {
+        self.display_mode == "window"
     }
 
     pub fn max_disk_bytes(&self) -> u64 {

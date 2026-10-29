@@ -215,8 +215,11 @@ pub fn apply_settings(
     new: crate::settings::Settings,
 ) -> Result<crate::settings::Settings, String> {
     let state = state(app);
-    let new = new.sanitized();
+    let mut new = new.sanitized();
     let old = state.settings();
+    // Window bounds are owned by the core (saved when the window closes);
+    // the page's copy may be stale.
+    new.window_bounds = old.window_bounds;
     if new == old {
         return Ok(new);
     }
@@ -224,8 +227,8 @@ pub fn apply_settings(
         .map_err(|e| format!("save settings: {e}"))?;
     *state.settings.write().unwrap() = new.clone();
 
-    if new.theme != old.theme {
-        dashboard::apply_theme(app, &new);
+    if new.display_mode != old.display_mode {
+        dashboard::apply_mode(app);
     }
     if new.hotkey_dashboard != old.hotkey_dashboard
         || new.hotkey_queue != old.hotkey_queue

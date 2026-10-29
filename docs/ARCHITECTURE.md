@@ -64,7 +64,7 @@ with sample data for UI work.
   rows, FLIP transitions when items move or disappear, a cascade on open,
   and a cross-fade into settings. Everything collapses to instant changes
   when "reduce motion" is on (system or app setting).
-- Fonts (Geist, Geist Mono) are bundled locally under the SIL OFL 1.1.
+- Fonts (Mona Sans, Hubot Sans, Martian Mono) are bundled locally under the SIL OFL 1.1.
 
 ## Capture
 

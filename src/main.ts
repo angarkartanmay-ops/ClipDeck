@@ -2,12 +2,15 @@
 
 import "./styles.css";
 import { api, inTauri, on, type Item, type Settings, type Status } from "./api";
-import { bytes, escapeHtml, timeAgo } from "./format";
+import { bytes, escapeHtml } from "./format";
 import { fuzzyScore } from "./fuzzy";
-import { deckArt, hydrateIcons, icons } from "./icons";
+import { deckArt, hydrateIcons, icons, mark } from "./icons";
+import { layout, type Box } from "./layout";
 import { closeSettings, openSettings, settingsOpen } from "./settings-view";
 
 type Filter = "all" | "text" | "image" | "files" | "pinned";
+type Flavor = "text" | "rich" | "code" | "link" | "color" | "image" | "files";
+type Display = Settings["displayMode"];
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -19,12 +22,10 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const root = document.documentElement;
-const panel = $("panel");
-const body = panel.querySelector<HTMLElement>(".body")!;
-const listScroll = $("list-scroll");
-const list = $("list");
-const highlight = $("highlight");
-const preview = $("preview");
+const app = $("app");
+const bar = $("bar");
+const stage = $("stage");
+const field = $("field");
 const search = $<HTMLInputElement>("search");
 const searchBox = search.closest<HTMLElement>(".search")!;
 const filtersNav = $("filters");
@@ -32,10 +33,13 @@ const filterIndicator = filtersNav.querySelector<HTMLElement>(".filter-indicator
 const banner = $("banner");
 const hints = $("hints");
 const statusEl = $("status");
+const countEl = $("count");
+const quicklook = $("quicklook");
 const toastEl = $("toast");
 
 let items: Item[] = [];
 let view: Item[] = [];
+let boxes: Box[] = [];
 let settings: Settings;
 let status: Status;
 let filter: Filter = "all";
@@ -47,35 +51,29 @@ let closing = false;
 let loadError: string | null = null;
 let bannerDismissed = false;
 let mode = new URLSearchParams(location.search).get("mode") ?? "";
+let lastPointer = { x: -1, y: -1 };
+let qlIndex: number | null = null;
 const thumbs = new Map<number, string>();
+const removing = new Set<number>();
 
 if (!inTauri) root.classList.add("mock");
 
-// ---------------------------------------------------------------- appearance
+// ---------------------------------------------------------------- environment
 
-const media = {
-  dark: matchMedia("(prefers-color-scheme: dark)"),
-  reduce: matchMedia("(prefers-reduced-motion: reduce)"),
-};
+const media = { reduce: matchMedia("(prefers-reduced-motion: reduce)") };
 
-function applyAppearance(s: Settings): void {
-  root.dataset.theme = s.theme === "system" ? (media.dark.matches ? "dark" : "light") : s.theme;
-  root.style.setProperty("--accent", s.accent);
+function applyMotion(s: Settings): void {
   const reduce = s.reduceMotion === "on" || (s.reduceMotion === "system" && media.reduce.matches);
   root.dataset.motion = reduce ? "reduce" : "full";
 }
 
-/** Glass needs the native acrylic backdrop; without it the panel is opaque. */
-function applyWindowStyle(s: Status): void {
-  root.dataset.glass = s.glass ? "on" : "off";
-}
-
 const motionReduced = () => root.dataset.motion === "reduce";
+const display = (): Display => settings?.displayMode ?? "fullscreen";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, motionReduced() ? 0 : ms));
+const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+const css = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
 
 // ---------------------------------------------------------------- item helpers
-
-type Flavor = "text" | "rich" | "code" | "link" | "color" | "image" | "files";
 
 const COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const LINK_RE = /^https?:\/\/\S+$/i;
@@ -89,21 +87,44 @@ function flavor(item: Item): Flavor {
   return item.kind === "rich" ? "rich" : "text";
 }
 
-/** Row title as [main text, muted suffix]. */
-function titleOf(item: Item, f: Flavor): [string, string] {
+const isShortText = (item: Item) => item.text.trim().length <= 48 && !item.text.trim().includes("\n");
+
+/** Width / height of a tile's card, so the grid reads like real windows. */
+function ratio(item: Item, f: Flavor): number {
+  switch (f) {
+    case "image": {
+      const { width = 16, height = 10 } = item.meta;
+      return Math.min(2.2, Math.max(0.62, width / Math.max(1, height)));
+    }
+    case "code":
+      return 1.55;
+    case "link":
+      return 1.75;
+    case "color":
+      return 1.15;
+    case "files":
+      return 1.3;
+    default:
+      return isShortText(item) ? 1.6 : 1.3;
+  }
+}
+
+function titleOf(item: Item, f: Flavor): string {
   switch (f) {
     case "image":
-      return ["Image", item.meta.width ? `${item.meta.width} × ${item.meta.height}` : ""];
+      return item.meta.width ? `Image ${item.meta.width} × ${item.meta.height}` : "Image";
     case "files": {
       const names = item.meta.files ?? [];
       const n = item.meta.fileCount ?? names.length;
-      return n === 1 ? [names[0] ?? "1 file", ""] : [`${n} files`, names.slice(0, 3).join(", ")];
+      return n === 1 ? (names[0] ?? "1 file") : `${n} files`;
     }
     case "link":
-      return [item.text.trim().replace(/^https?:\/\/(www\.)?/i, ""), ""];
+      return item.text.trim().replace(/^https?:\/\/(www\.)?/i, "");
+    case "color":
+      return item.text.trim().toUpperCase();
     default: {
       const line = item.text.split(/\r?\n/).find((l) => l.trim()) ?? "";
-      return [line.trim().replace(/\s+/g, " ").slice(0, 160) || "Empty text", ""];
+      return line.trim().replace(/\s+/g, " ").slice(0, 120) || "Empty text";
     }
   }
 }
@@ -119,16 +140,6 @@ function when(ms: number): string {
   return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
 }
 
-const KIND_LABEL: Record<Flavor, string> = {
-  text: "Text",
-  rich: "Rich text",
-  code: "Code",
-  link: "Link",
-  color: "Colour",
-  image: "Image",
-  files: "Files",
-};
-
 /** Escapes `text` and wraps the parts that match the search tokens. */
 function highlightMatches(text: string): string {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -139,21 +150,36 @@ function highlightMatches(text: string): string {
     const i = lower.indexOf(t);
     if (i >= 0) marks.push([i, i + t.length]);
   }
-  if (!marks.length) return escapeHtml(text);
   marks.sort((a, b) => a[0] - b[0]);
   let out = "";
   let pos = 0;
   for (const [s, e] of marks) {
     if (s < pos) continue;
-    out += escapeHtml(text.slice(pos, s)) + `<mark>${escapeHtml(text.slice(s, e))}</mark>`;
+    out += escapeHtml(text.slice(pos, s)) + `<b>${escapeHtml(text.slice(s, e))}</b>`;
     pos = e;
   }
   return out + escapeHtml(text.slice(pos));
 }
 
+function hexInfo(text: string): { full: string; rgb: string } {
+  const hex = text.trim();
+  const full = hex.length === 4 ? `#${[...hex.slice(1)].map((c) => c + c).join("")}` : hex;
+  const n = parseInt(full.slice(1), 16);
+  return { full: full.toUpperCase(), rgb: `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}` };
+}
+
+function splitUrl(text: string): { host: string; rest: string } {
+  try {
+    const u = new URL(text.trim());
+    return { host: u.host.replace(/^www\./, ""), rest: `${u.pathname}${u.search}${u.hash}`.replace(/^\/$/, "") };
+  } catch {
+    return { host: text.trim(), rest: "" };
+  }
+}
+
 // ---------------------------------------------------------------- data
 
-async function loadItems(animate: "enter" | "flip" | "none" = "flip"): Promise<void> {
+async function loadItems(animate: "bubble" | "flip" | "none" = "flip"): Promise<void> {
   const keepId = view[selected]?.id;
   try {
     items = await api.listItems();
@@ -189,8 +215,21 @@ async function thumb(id: number): Promise<string> {
   return src;
 }
 
+/** Quick Look shows the full-resolution image, falling back to the thumbnail. */
+function loadPreview(scope: ParentNode): void {
+  const img = scope.querySelector<HTMLImageElement>("img[data-preview]");
+  if (!img) return;
+  const id = Number(img.dataset.preview);
+  const cached = thumbs.get(id);
+  if (cached) img.src = cached;
+  img.onload = () => img.classList.add("loaded");
+  void api.getPreview(id).then((src) => {
+    if (src && img.isConnected) img.src = src;
+  });
+}
+
 function loadImages(scope: ParentNode): void {
-  scope.querySelectorAll<HTMLImageElement>("img[data-thumb]").forEach(async (img) => {
+  scope.querySelectorAll<HTMLImageElement>("img[data-thumb]:not(.loaded)").forEach(async (img) => {
     const src = await thumb(Number(img.dataset.thumb));
     if (!src) return;
     img.onload = () => img.classList.add("loaded");
@@ -198,60 +237,97 @@ function loadImages(scope: ParentNode): void {
   });
 }
 
-// ---------------------------------------------------------------- list
+// ---------------------------------------------------------------- tiles
 
-function tile(item: Item, f: Flavor): string {
-  if (f === "image") return `<span class="tile"><img data-thumb="${item.id}" alt="" draggable="false"/>${icons.image}</span>`;
-  if (f === "color") return `<span class="tile"><span class="swatch" style="background:${item.text.trim()}"></span></span>`;
-  return `<span class="tile">${icons[f] ?? icons.text}</span>`;
+function cardContent(item: Item, f: Flavor): string {
+  switch (f) {
+    case "image": {
+      const cached = thumbs.get(item.id);
+      return `<div class="content c-image"><img data-thumb="${item.id}" ${cached ? `src="${cached}" class="loaded"` : ""} alt="" draggable="false"/><div class="shimmer"></div></div>`;
+    }
+    case "files": {
+      const names = item.meta.files ?? [];
+      const n = item.meta.fileCount ?? names.length;
+      if (n === 1) {
+        const name = names[0] ?? "";
+        const dir = !/\.[a-z0-9]{1,6}$/i.test(name);
+        return `<div class="content c-files single"><span class="big-icon">${dir ? icons.folder : icons.file}</span><span class="fname">${escapeHtml(name)}</span></div>`;
+      }
+      const rows = names
+        .slice(0, 4)
+        .map((nm) => `<div class="file">${icons.file}<span>${escapeHtml(nm)}</span></div>`)
+        .join("");
+      return `<div class="content c-files">${rows}${n > 4 ? `<div class="more">+${n - 4} more</div>` : ""}</div>`;
+    }
+    case "color": {
+      const { full } = hexInfo(item.text);
+      return `<div class="content c-color" style="background:${full}"><span class="hex">${escapeHtml(full)}</span></div>`;
+    }
+    case "link": {
+      const { host, rest } = splitUrl(item.text);
+      return `<div class="content c-link"><span class="glyph">${icons.link}</span><span class="host">${escapeHtml(host)}</span>${
+        rest ? `<span class="path">${escapeHtml(rest)}</span>` : ""
+      }</div>`;
+    }
+    case "code":
+      return `<div class="content c-code">${escapeHtml(item.text.slice(0, 900))}</div>`;
+    default:
+      return `<div class="content c-text${isShortText(item) ? " big" : ""}">${escapeHtml(item.text.slice(0, 700))}</div>`;
+  }
 }
 
-function row(item: Item, index: number): string {
+function tile(item: Item, index: number, box: Box, labelH: number): string {
   const f = flavor(item);
   const queuePos = status?.queue.indexOf(item.id) ?? -1;
-  const slot = !searchMode && index < 9 ? `<kbd class="key">${index + 1}</kbd>` : "";
-  const mono = f === "code" || f === "color";
-  const [title, sub] = titleOf(item, f);
-  return `<div class="row" role="option" id="row-${item.id}" data-index="${index}" data-id="${item.id}" style="--i:${Math.min(index, 12)}" aria-selected="false">
-    ${tile(item, f)}
-    <span class="row-text">
-      <span class="title${mono ? " mono" : ""}">${highlightMatches(title)}${sub ? ` <span class="sub">${highlightMatches(sub)}</span>` : ""}</span>
-      <span class="meta">${escapeHtml(item.sourceApp || "Unknown app")} · ${timeAgo(item.createdAt)}</span>
-    </span>
-    <span class="trail">
-      ${queuePos >= 0 ? `<span class="queued">Q${queuePos + 1}</span>` : ""}
-      ${item.pinned ? `<span class="pin-flag" title="Pinned">${icons.pinned}</span>` : ""}
-      ${slot}
-    </span>
+  const badges = [
+    queuePos >= 0 ? `<span class="badge solid" title="Queued">Q${queuePos + 1}</span>` : "",
+    item.pinned ? `<span class="badge" title="Pinned">${icons.pinned}</span>` : "",
+  ].join("");
+  const slotKey = !searchMode && index < 9 ? `<span class="slot-key"><kbd class="key">${index + 1}</kbd></span>` : "";
+  return `<div class="slot" role="option" id="tile-${item.id}" data-index="${index}" data-id="${item.id}" aria-selected="false"
+      aria-label="${escapeHtml(titleOf(item, f))}, from ${escapeHtml(item.sourceApp || "unknown app")}"
+      style="transform:translate(${box.x}px,${box.y}px);width:${box.w}px;height:${box.h + labelH}px">
+    <div class="tile">
+      <div class="card" style="height:${box.h}px">${cardContent(item, f)}${slotKey}<div class="badges">${badges}</div></div>
+      <div class="label">${icons[f]}<span class="name">${highlightMatches(titleOf(item, f))}</span></div>
+    </div>
   </div>`;
-}
-
-function skeleton(): string {
-  return Array.from(
-    { length: 7 },
-    (_, i) => `<div class="row skeleton" style="--i:${i}"><span class="tile"></span><span class="row-text"><span class="bar"></span><span class="bar short"></span></span><span></span></div>`,
-  ).join("");
 }
 
 function emptyState(): string {
   if (loadError) {
-    return `<div class="empty"><div class="error-box">${icons.alert}<h2>Couldn't read your history</h2><p>${escapeHtml(loadError)}</p><button class="btn" data-retry>Try again</button></div></div>`;
+    return `<div class="empty">${icons.alert}<h2>Couldn't read your history</h2><p>${escapeHtml(loadError)}</p><button class="btn" data-retry>Try again</button></div>`;
   }
   if (items.length === 0) {
-    return `<div class="empty">${deckArt}<h2>Nothing on the deck yet</h2>
-      <p>Copy text, a screenshot or some files and they stack up here. Bring this back with <kbd class="key">${escapeHtml(settings.hotkeyDashboard)}</kbd>.</p></div>`;
+    return `<div class="empty">${deckArt}<h2>Nothing copied yet</h2>
+      <p>Copy text, a screenshot or some files and they appear here. Bring this view back with <kbd class="key">${escapeHtml(settings.hotkeyDashboard)}</kbd>.</p></div>`;
   }
   if (query) {
     return `<div class="empty">${icons.search}<h2>No matches for “${escapeHtml(query)}”</h2><p>Try fewer letters, or press <kbd class="key">Tab</kbd> to switch filters.</p></div>`;
   }
-  const label = FILTERS.find((f) => f.id === filter)?.label.toLowerCase();
+  const label = FILTERS.find((x) => x.id === filter)?.label.toLowerCase();
   return `<div class="empty">${icons[filter === "pinned" ? "pin" : "history"]}<h2>No ${label} yet</h2><p>${
-    filter === "pinned" ? "Press <kbd class=\"key\">P</kbd> on any item to keep it forever." : "Copied items of this type will show up here."
+    filter === "pinned" ? 'Press <kbd class="key">P</kbd> on any clip to keep it forever.' : "Copied items of this type will show up here."
   }</p></div>`;
 }
 
-/** Re-renders the list. `flip` animates rows from their old positions. */
-function render(animate: "enter" | "flip" | "none" = "none", keepId?: number): void {
+interface Geometry {
+  pad: number;
+  top: number;
+  labelH: number;
+}
+
+function geometry(): Geometry {
+  const full = display() === "fullscreen";
+  return {
+    pad: full ? Math.round(Math.min(110, Math.max(28, stage.clientWidth * 0.055))) : 16,
+    top: full ? 24 : 12,
+    labelH: 32,
+  };
+}
+
+/** Lays the view out and (re)builds the tiles. */
+function render(animate: "bubble" | "flip" | "none" = "none", keepId?: number): void {
   const before = animate === "flip" ? positions() : null;
   view = computeView();
   if (keepId !== undefined) {
@@ -260,168 +336,132 @@ function render(animate: "enter" | "flip" | "none" = "none", keepId?: number): v
   }
   selected = Math.max(0, Math.min(selected, view.length - 1));
 
-  const isEmpty = view.length === 0;
-  body.classList.toggle("is-empty", isEmpty);
-  list.classList.toggle("is-empty", isEmpty);
-  list.querySelectorAll(".row, .empty").forEach((el) => el.remove());
-  list.insertAdjacentHTML("beforeend", isEmpty ? emptyState() : view.map(row).join(""));
+  const g = geometry();
+  const full = display() === "fullscreen";
+  const width = Math.max(200, stage.clientWidth - g.pad * 2);
+  const viewHeight = Math.max(160, stage.clientHeight - g.top * 2);
+  const result = layout(
+    view.map((it) => ratio(it, flavor(it))),
+    {
+      width,
+      viewHeight,
+      minRowHeight: full ? 120 : 92,
+      maxRowHeight: full ? Math.min(320, viewHeight * 0.44) : 210,
+      gapX: full ? 30 : 16,
+      gapY: full ? 22 : 14,
+      labelHeight: g.labelH,
+    },
+  );
+  boxes = result.boxes;
+  // Centre short layouts vertically (slightly above the middle).
+  const offsetY = result.height < viewHeight ? Math.round((viewHeight - result.height) * 0.45) : 0;
+  for (const b of boxes) b.y += offsetY + g.top;
+  field.style.width = `${width}px`;
+  field.style.height = `${Math.max(result.height + g.top * 2 + offsetY, stage.clientHeight - 1)}px`;
 
-  if (animate === "enter") list.querySelectorAll(".row").forEach((el) => el.classList.add("enter"));
+  field.innerHTML = view.length ? view.map((it, i) => tile(it, i, boxes[i], g.labelH)).join("") : emptyState();
+  loadImages(field);
+  if (animate === "bubble") bubbleIn();
   if (before) flip(before);
-  loadImages(list);
-  updateSelection(selected, { scroll: true, instant: animate === "enter" });
+  updateSelection(selected, { scroll: animate !== "none" });
   renderChrome();
 }
 
-function positions(): Map<string, number> {
-  const map = new Map<string, number>();
-  list.querySelectorAll<HTMLElement>(".row[data-id]").forEach((el) => map.set(el.dataset.id!, el.offsetTop));
+function positions(): Map<string, { x: number; y: number }> {
+  const map = new Map<string, { x: number; y: number }>();
+  field.querySelectorAll<HTMLElement>(".slot").forEach((el) => {
+    const b = boxes[Number(el.dataset.index)];
+    if (b) map.set(el.dataset.id!, { x: b.x, y: b.y });
+  });
   return map;
 }
 
-/** FLIP: rows that moved slide from where they were; new rows fade in. */
-function flip(before: Map<string, number>): void {
+/** Tiles bubble up from small, rippling out from the centre of the screen. */
+function bubbleIn(): void {
+  if (motionReduced() || !boxes.length) return;
+  const spring = css("--spring");
+  const cx = field.clientWidth / 2;
+  const cy = stage.scrollTop + stage.clientHeight / 2;
+  const far = Math.hypot(cx, stage.clientHeight / 2) || 1;
+  field.querySelectorAll<HTMLElement>(".slot").forEach((el) => {
+    const b = boxes[Number(el.dataset.index)];
+    const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy);
+    el.querySelector(".tile")!.animate(
+      [
+        { opacity: 0, transform: "scale(0.45)" },
+        { opacity: 1, offset: 0.3 },
+        { opacity: 1, transform: "scale(1)" },
+      ],
+      { duration: 680, delay: 30 + Math.min(1, d / far) * 230, easing: spring, fill: "backwards" },
+    );
+  });
+}
+
+/** FLIP: tiles that moved glide from where they were; new ones pop in. */
+function flip(before: Map<string, { x: number; y: number }>): void {
   if (motionReduced()) return;
-  list.querySelectorAll<HTMLElement>(".row[data-id]").forEach((el) => {
+  const soft = css("--spring-soft");
+  field.querySelectorAll<HTMLElement>(".slot").forEach((el) => {
+    const b = boxes[Number(el.dataset.index)];
     const old = before.get(el.dataset.id!);
-    if (old === undefined) {
-      el.animate([{ opacity: 0, transform: "scale(0.97)" }, { opacity: 1, transform: "none" }], {
-        duration: 260,
-        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    if (!old) {
+      el.querySelector(".tile")!.animate([{ opacity: 0, transform: "scale(0.6)" }, { opacity: 1, transform: "scale(1)" }], {
+        duration: 520,
+        easing: css("--spring"),
       });
       return;
     }
-    const dy = old - el.offsetTop;
-    if (dy) {
-      el.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], {
-        duration: 300,
-        easing: "cubic-bezier(0.22, 0.9, 0.3, 1)",
+    if (old.x !== b.x || old.y !== b.y) {
+      el.animate([{ transform: `translate(${old.x}px,${old.y}px)` }, { transform: `translate(${b.x}px,${b.y}px)` }], {
+        duration: 560,
+        easing: soft,
       });
     }
   });
 }
 
-function updateSelection(next: number, opts: { scroll?: boolean; instant?: boolean } = {}): void {
-  if (!view.length) {
-    renderPreview();
-    return;
-  }
-  const prev = selected;
+function slotEl(index: number): HTMLElement | null {
+  return field.querySelector<HTMLElement>(`.slot[data-index="${index}"]`);
+}
+
+function updateSelection(next: number, opts: { scroll?: boolean } = {}): void {
+  if (!view.length) return;
   selected = Math.max(0, Math.min(next, view.length - 1));
-  if (opts.instant) {
-    highlight.style.transition = "none";
-    void highlight.offsetWidth;
-  }
-  highlight.style.setProperty("--sel", String(selected));
-  if (opts.instant) requestAnimationFrame(() => highlight.style.removeProperty("transition"));
-
-  list.querySelectorAll<HTMLElement>(".row[data-index]").forEach((el) => {
-    const on = Number(el.dataset.index) === selected;
-    el.classList.toggle("selected", on);
-    el.setAttribute("aria-selected", String(on));
+  field.querySelectorAll<HTMLElement>(".slot.selected").forEach((el) => {
+    el.classList.remove("selected");
+    el.setAttribute("aria-selected", "false");
   });
-  list.setAttribute("aria-activedescendant", `row-${view[selected].id}`);
-
+  const el = slotEl(selected);
+  if (!el) return;
+  el.classList.add("selected");
+  el.setAttribute("aria-selected", "true");
+  field.setAttribute("aria-activedescendant", el.id);
   if (opts.scroll) {
-    const pitch = list.querySelector<HTMLElement>(".row")?.offsetHeight ?? 40;
-    const top = selected * (pitch + 2);
-    const pad = 6;
-    if (top < listScroll.scrollTop) listScroll.scrollTo({ top: top - pad, behavior: motionReduced() ? "auto" : "smooth" });
-    else if (top + pitch > listScroll.scrollTop + listScroll.clientHeight - pad * 2)
-      listScroll.scrollTo({ top: top + pitch - listScroll.clientHeight + pad * 2, behavior: motionReduced() ? "auto" : "smooth" });
-  }
-  if (prev !== selected || !preview.dataset.id || Number(preview.dataset.id) !== view[selected].id) renderPreview();
-}
-
-// ---------------------------------------------------------------- preview
-
-function stageFor(item: Item, f: Flavor): string {
-  const text = item.text;
-  switch (f) {
-    case "image": {
-      const dims = item.meta.width ? `${item.meta.width} × ${item.meta.height}` : "";
-      return `<div class="image-view"><img data-thumb="${item.id}" alt="Copied image" draggable="false"/><div class="placeholder"></div>${
-        dims ? `<span class="chip">${dims}</span>` : ""
-      }</div>`;
-    }
-    case "files": {
-      const paths = text.split(/\r?\n/).filter(Boolean);
-      return `<div class="file-view">${paths
-        .map((p) => {
-          const name = p.split(/[\\/]/).pop() ?? p;
-          const isDir = !/\.[a-z0-9]{1,6}$/i.test(name);
-          return `<div class="file"><span class="tile">${isDir ? icons.folder : icons.file}</span><span class="row-text"><span class="name">${escapeHtml(
-            name,
-          )}</span><span class="path">${escapeHtml(p)}</span></span></div>`;
-        })
-        .join("")}</div>`;
-    }
-    case "color": {
-      const hex = text.trim();
-      const full = hex.length === 4 ? `#${[...hex.slice(1)].map((c) => c + c).join("")}` : hex;
-      const n = parseInt(full.slice(1), 16);
-      const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-      return `<div class="color-view"><div class="big" style="background:${full}"></div><dl><dt>HEX</dt><dd>${escapeHtml(
-        full.toUpperCase(),
-      )}</dd><dt>RGB</dt><dd>${r}, ${g}, ${b}</dd></dl></div>`;
-    }
-    case "link": {
-      let host = text.trim();
-      let rest = "";
-      try {
-        const u = new URL(text.trim());
-        host = u.host.replace(/^www\./, "");
-        rest = `${u.pathname}${u.search}${u.hash}`;
-      } catch {
-        /* show as-is */
-      }
-      return `<div class="link-view"><span class="tile">${icons.link}</span><span class="host">${escapeHtml(host)}</span>${
-        rest && rest !== "/" ? `<span class="path">${escapeHtml(rest)}</span>` : ""
-      }</div>`;
-    }
-    case "code":
-      return `<pre class="code">${escapeHtml(text)}</pre>`;
-    default:
-      return `<pre>${escapeHtml(text)}</pre>`;
+    const b = boxes[selected];
+    const top = b.y - 16;
+    const bottom = b.y + b.h + geometry().labelH + 16;
+    const behavior = motionReduced() ? "auto" : "smooth";
+    if (top < stage.scrollTop) stage.scrollTo({ top, behavior });
+    else if (bottom > stage.scrollTop + stage.clientHeight) stage.scrollTo({ top: bottom - stage.clientHeight, behavior });
   }
 }
 
-function renderPreview(): void {
-  const item = view[selected];
-  if (!item) {
-    preview.innerHTML = "";
-    delete preview.dataset.id;
-    return;
-  }
-  const f = flavor(item);
-  preview.dataset.id = String(item.id);
-  const textual = item.kind === "text" || item.kind === "rich";
-  const verb = status?.canPaste ? "Paste" : "Copy";
-  const queued = status?.queue.includes(item.id);
-  const extra =
-    f === "image"
-      ? bytes(item.size)
-      : f === "files"
-        ? `${item.meta.fileCount ?? 0} item${item.meta.fileCount === 1 ? "" : "s"}`
-        : `${(item.meta.chars ?? item.text.length).toLocaleString()} chars`;
-  preview.innerHTML = `
-    <div class="stage"><div class="stage-content">${stageFor(item, f)}</div></div>
-    <div class="details">
-      <span class="tag">${KIND_LABEL[f]}</span>
-      <span>${icons.app}${escapeHtml(item.sourceApp || "Unknown app")}</span>
-      <span title="${new Date(item.createdAt).toLocaleString()}">${icons.clock}${when(item.createdAt)}</span>
-      <span>${extra}</span>
-    </div>
-    <div class="actions">
-      <button class="btn primary" data-act="paste">${icons.paste}${verb}<kbd class="key">↵</kbd></button>
-      ${textual && item.kind === "rich" ? `<button class="btn" data-act="plain" title="Paste without formatting">Plain<kbd class="key">⇧↵</kbd></button>` : ""}
-      <span class="spacer"></span>
-      <button class="icon-btn${item.pinned ? " on" : ""}" data-act="pin" title="${item.pinned ? "Unpin" : "Pin"} (P)" aria-label="${item.pinned ? "Unpin" : "Pin"}">${icons.pin}</button>
-      <button class="icon-btn${queued ? " on" : ""}" data-act="queue" title="${queued ? "Remove from queue" : "Add to paste queue"} (Q)" aria-label="Queue">${icons.queue}</button>
-      <button class="icon-btn" data-act="copy" title="Copy only (Ctrl+C)" aria-label="Copy">${icons.copy}</button>
-      <button class="icon-btn danger" data-act="delete" title="Delete (Del)" aria-label="Delete">${icons.trash}</button>
-    </div>`;
-  loadImages(preview);
+/** Up/Down: the tile in the neighbouring row closest horizontally. */
+function moveVertical(dir: 1 | -1): void {
+  const cur = boxes[selected];
+  if (!cur) return;
+  const cx = cur.x + cur.w / 2;
+  let best = -1;
+  let bestDist = Infinity;
+  boxes.forEach((b, i) => {
+    if (b.row !== cur.row + dir) return;
+    const d = Math.abs(b.x + b.w / 2 - cx);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  });
+  if (best >= 0) updateSelection(best, { scroll: true });
 }
 
 // ---------------------------------------------------------------- chrome
@@ -437,6 +477,7 @@ function moveFilterIndicator(instant = false): void {
 
 function renderChrome(): void {
   if (!settings || !status) return;
+  root.dataset.display = display();
   filtersNav.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
     const active = b.dataset.filter === filter;
     b.classList.toggle("active", active);
@@ -444,6 +485,7 @@ function renderChrome(): void {
   });
   moveFilterIndicator();
   searchBox.classList.toggle("typing", searchMode || query.length > 0);
+  countEl.textContent = `${status.itemCount}`;
 
   const queueBtn = $("queue-toggle");
   queueBtn.classList.toggle("on", status.queueActive);
@@ -457,32 +499,34 @@ function renderChrome(): void {
   pauseBtn.innerHTML = status.paused ? icons.play : icons.pause;
   pauseBtn.title = status.paused ? "Resume capture" : "Pause capture";
   $("settings-btn").title = "Settings";
+  const modeBtn = $("mode-toggle");
+  modeBtn.innerHTML = display() === "fullscreen" ? icons.windowed : icons.maximize;
+  modeBtn.title = display() === "fullscreen" ? "Window mode: move and resize" : "Full screen";
+  $("close-btn").title = "Close (Esc)";
 
   statusEl.classList.toggle("paused", status.paused);
-  statusEl.innerHTML = `<span class="dot"></span><span>${status.paused ? "Paused" : "Capturing"}</span><span class="num">${
-    status.itemCount
-  } · ${bytes(status.diskBytes)}</span>`;
+  statusEl.innerHTML = `<span class="dot"></span><span>${status.paused ? "Paused" : "Capturing"}</span><span class="num">${bytes(
+    status.diskBytes,
+  )}</span>`;
 
   const verb = status.canPaste ? "paste" : "copy";
-  hints.innerHTML = searchMode
-    ? `<span><kbd class="key">↑↓</kbd>move</span><span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">Alt 1–9</kbd>quick</span><span><kbd class="key">Esc</kbd>clear</span>`
-    : `<span><kbd class="key">↑↓</kbd>move</span><span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">P</kbd>pin</span><span><kbd class="key">Q</kbd>queue</span><span><kbd class="key">Del</kbd>remove</span><span><kbd class="key">Esc</kbd>close</span>`;
+  hints.innerHTML =
+    searchMode && query
+      ? `<span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">Alt 1–9</kbd>quick</span><span><kbd class="key">Ctrl P</kbd>pin</span><span><kbd class="key">Esc</kbd>clear</span>`
+      : `<span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">Space</kbd>preview</span><span><kbd class="key">1–9</kbd>quick</span><span><kbd class="key">P</kbd>pin</span><span><kbd class="key">Q</kbd>queue</span><span><kbd class="key">Del</kbd>remove</span><span><kbd class="key">Esc</kbd>close</span>`;
 
   renderBanner();
 }
 
 function renderBanner(): void {
   let html = "";
-  let warn = false;
   if (status.hotkeyErrors.length) {
-    warn = true;
     html = `${icons.alert}<div><b>Hotkey conflict.</b> ${status.hotkeyErrors.map(escapeHtml).join("; ")}.</div><button class="btn" data-open-settings>Fix</button>`;
   } else if (mode === "welcome" && !bannerDismissed) {
-    html = `${icons.keyboard}<div><b>ClipDeck is running in your tray.</b> Copy as usual, then press <kbd class="key">${escapeHtml(
+    html = `${icons.keyboard}<div><b>ClipDeck runs in your tray.</b> Copy as usual, then press <kbd class="key">${escapeHtml(
       settings.hotkeyDashboard,
     )}</kbd> to pick what to paste. Plain <kbd class="key">Ctrl+V</kbd> is unchanged.</div><button class="btn" data-dismiss>Got it</button>`;
   }
-  banner.classList.toggle("warn", warn);
   if (banner.innerHTML !== html) banner.innerHTML = html;
   banner.hidden = !html;
 }
@@ -498,15 +542,19 @@ function toast(message: string, icon = "paste"): void {
   toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), 1700);
 }
 
+function leave(): void {
+  app.classList.add("leaving");
+  field.classList.add("leaving");
+}
+
 function close(): void {
   if (closing) return;
   closing = true;
-  panel.classList.add("closing");
-  window.setTimeout(() => void api.close(), motionReduced() ? 0 : 100);
-}
-
-function rowEl(index: number): HTMLElement | null {
-  return list.querySelector<HTMLElement>(`.row[data-index="${index}"]`);
+  leave();
+  window.setTimeout(() => {
+    void api.close();
+    if (!inTauri) resetAfterMockClose();
+  }, motionReduced() ? 0 : 170);
 }
 
 async function choose(index: number, plain = false): Promise<void> {
@@ -514,9 +562,9 @@ async function choose(index: number, plain = false): Promise<void> {
   if (!item || closing) return;
   closing = true;
   updateSelection(index);
-  rowEl(index)?.classList.add("flash");
-  panel.classList.add("closing");
-  await wait(70);
+  slotEl(index)?.classList.add("chosen");
+  leave();
+  await wait(150);
   await api.paste(item.id, plain);
   if (!inTauri) {
     toast(status.canPaste ? "Pasted into your app" : "Copied to clipboard");
@@ -528,9 +576,9 @@ async function copyOnly(index: number): Promise<void> {
   const item = view[index];
   if (!item || closing) return;
   closing = true;
-  rowEl(index)?.classList.add("flash");
-  panel.classList.add("closing");
-  await wait(70);
+  slotEl(index)?.classList.add("chosen");
+  leave();
+  await wait(150);
   await api.copy(item.id);
   if (!inTauri) {
     toast("Copied to clipboard", "copy");
@@ -538,11 +586,14 @@ async function copyOnly(index: number): Promise<void> {
   }
 }
 
+/** The browser preview has no window to close; bring the deck back. */
 function resetAfterMockClose(): void {
   window.setTimeout(() => {
     closing = false;
-    panel.classList.remove("closing");
-  }, 700);
+    field.classList.remove("leaving");
+    playEnter();
+    render("bubble");
+  }, 900);
 }
 
 async function togglePin(index: number): Promise<void> {
@@ -563,14 +614,12 @@ async function toggleQueue(index: number): Promise<void> {
   render("none", item.id);
 }
 
-const removing = new Set<number>();
-
 async function remove(index: number): Promise<void> {
   const item = view[index];
   if (!item || removing.has(item.id)) return;
   removing.add(item.id);
-  rowEl(index)?.classList.add("leaving");
-  await wait(140);
+  slotEl(index)?.classList.add("removing");
+  await wait(170);
   try {
     await api.remove(item.id);
     thumbs.delete(item.id);
@@ -584,8 +633,8 @@ function setFilter(next: Filter): void {
   if (next === filter) return;
   filter = next;
   selected = 0;
-  listScroll.scrollTop = 0;
-  render("enter");
+  stage.scrollTop = 0;
+  render("bubble");
 }
 
 function setQuery(next: string): void {
@@ -593,13 +642,160 @@ function setQuery(next: string): void {
   if (search.value !== next) search.value = next;
   if (next) searchMode = true;
   selected = 0;
-  listScroll.scrollTop = 0;
-  render("none");
+  stage.scrollTop = 0;
+  render("flip");
 }
 
 function exitSearch(): void {
   searchMode = false;
   setQuery("");
+}
+
+/** Switches between the full-screen overlay and the movable window. */
+async function setDisplay(next: Display): Promise<void> {
+  if (next === display()) return;
+  field.classList.add("leaving");
+  await wait(150);
+  settings = { ...(await api.saveSettings({ ...settings, displayMode: next })), displayMode: next };
+  root.dataset.display = next;
+  // The core resizes the window; let the new size land before laying out.
+  await frame();
+  await frame();
+  await wait(40);
+  field.classList.remove("leaving");
+  render("bubble", view[selected]?.id);
+  search.focus();
+}
+
+// ---------------------------------------------------------------- quick look
+
+function qlBody(item: Item, f: Flavor): string {
+  switch (f) {
+    case "image":
+      return `<div class="ql-image"><img data-preview="${item.id}" alt="Copied image" draggable="false"/><div class="shimmer"></div></div>`;
+    case "files":
+      return `<div class="ql-files">${item.text
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((p) => {
+          const name = p.split(/[\\/]/).pop() ?? p;
+          const dir = !/\.[a-z0-9]{1,6}$/i.test(name);
+          return `<div class="file"><span class="ficon">${dir ? icons.folder : icons.file}</span><span><div class="name">${escapeHtml(
+            name,
+          )}</div><div class="path">${escapeHtml(p)}</div></span></div>`;
+        })
+        .join("")}</div>`;
+    case "color": {
+      const { full, rgb } = hexInfo(item.text);
+      return `<div class="ql-color"><div class="big" style="background:${full}"></div><dl><dt>HEX</dt><dd>${escapeHtml(full)}</dd><dt>RGB</dt><dd>${rgb}</dd></dl></div>`;
+    }
+    case "link": {
+      const { host, rest } = splitUrl(item.text);
+      return `<div class="ql-link"><span class="host">${escapeHtml(host)}</span>${rest ? `<span class="path">${escapeHtml(rest)}</span>` : ""}</div>`;
+    }
+    case "code":
+      return `<pre class="code">${escapeHtml(item.text)}</pre>`;
+    default:
+      return `<pre>${escapeHtml(item.text)}</pre>`;
+  }
+}
+
+function qlPanel(item: Item): string {
+  const f = flavor(item);
+  const verb = status.canPaste ? "Paste" : "Copy";
+  const extra =
+    f === "image"
+      ? bytes(item.size)
+      : f === "files"
+        ? `${item.meta.fileCount ?? 0} items`
+        : `${(item.meta.chars ?? item.text.length).toLocaleString()} chars`;
+  return `<section class="ql-panel" role="dialog" aria-label="Preview">
+      <header class="ql-head">
+        <span class="title">${escapeHtml(titleOf(item, f))}</span>
+        <span class="meta">${escapeHtml(item.sourceApp || "Unknown app")} · ${when(item.createdAt)} · ${extra}</span>
+        <button class="tool" type="button" data-ql-close aria-label="Close preview">${icons.close}</button>
+      </header>
+      <div class="ql-body">${qlBody(item, f)}</div>
+      <footer class="ql-foot">
+        <button class="btn primary" data-act="paste">${icons.paste}${verb}<kbd class="key">↵</kbd></button>
+        ${item.kind === "rich" ? `<button class="btn" data-act="plain">Plain text<kbd class="key">⇧↵</kbd></button>` : ""}
+        <span class="spacer"></span>
+        <button class="btn" data-act="pin">${icons.pin}${item.pinned ? "Unpin" : "Pin"}</button>
+        <button class="btn" data-act="copy">${icons.copy}Copy</button>
+        <button class="btn" data-act="delete">${icons.trash}Delete</button>
+      </footer>
+    </section>`;
+}
+
+/** Zooms a preview out of the tile, like macOS Quick Look. */
+function openQuickLook(index: number): void {
+  const item = view[index];
+  if (!item) return;
+  qlIndex = index;
+  quicklook.innerHTML = `<div class="ql-backdrop" data-ql-close></div>${qlPanel(item)}`;
+  quicklook.hidden = false;
+  quicklook.classList.remove("closing");
+  app.classList.add("covered");
+  loadPreview(quicklook);
+  const panel = quicklook.querySelector<HTMLElement>(".ql-panel")!;
+  const card = slotEl(index)?.querySelector<HTMLElement>(".card");
+  if (card && !motionReduced()) {
+    const from = card.getBoundingClientRect();
+    const to = panel.getBoundingClientRect();
+    panel.animate(
+      [
+        {
+          transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`,
+          opacity: 0.2,
+        },
+        { opacity: 1, offset: 0.25 },
+        { transform: "none", opacity: 1 },
+      ],
+      { duration: 520, easing: css("--spring-soft") },
+    );
+  }
+}
+
+async function closeQuickLook(): Promise<void> {
+  if (qlIndex === null) return;
+  const panel = quicklook.querySelector<HTMLElement>(".ql-panel");
+  const card = slotEl(qlIndex)?.querySelector<HTMLElement>(".card");
+  qlIndex = null;
+  app.classList.remove("covered");
+  quicklook.classList.add("closing");
+  if (panel && card && !motionReduced()) {
+    const from = panel.getBoundingClientRect();
+    const to = card.getBoundingClientRect();
+    await panel.animate(
+      [
+        { transform: "none", opacity: 1 },
+        {
+          transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width}, ${to.height / from.height})`,
+          opacity: 0,
+        },
+      ],
+      { duration: 200, easing: css("--ease-in"), fill: "forwards" },
+    ).finished;
+  }
+  quicklook.hidden = true;
+  quicklook.innerHTML = "";
+  search.focus();
+}
+
+function stepQuickLook(delta: number): void {
+  if (qlIndex === null) return;
+  const next = Math.max(0, Math.min(view.length - 1, qlIndex + delta));
+  if (next === qlIndex) return;
+  qlIndex = next;
+  updateSelection(next, { scroll: true });
+  quicklook.querySelector(".ql-panel")!.outerHTML = qlPanel(view[next]);
+  loadPreview(quicklook);
+  quicklook
+    .querySelector<HTMLElement>(".ql-body")
+    ?.animate([{ opacity: 0, transform: `translateX(${delta * 14}px)` }, { opacity: 1, transform: "none" }], {
+      duration: 260,
+      easing: css("--ease"),
+    });
 }
 
 // ---------------------------------------------------------------- keyboard
@@ -614,6 +810,24 @@ function onKeyDown(e: KeyboardEvent): void {
     return;
   }
 
+  if (qlIndex !== null) {
+    if (e.key === "Escape" || e.key === " ") {
+      e.preventDefault();
+      void closeQuickLook();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const i = qlIndex;
+      void closeQuickLook().then(() => choose(i, e.shiftKey));
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      stepQuickLook(1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      stepQuickLook(-1);
+    }
+    return;
+  }
+
   switch (e.key) {
     case "Escape":
       e.preventDefault();
@@ -623,16 +837,17 @@ function onKeyDown(e: KeyboardEvent): void {
     case "ArrowDown":
     case "ArrowUp":
       e.preventDefault();
-      updateSelection(selected + (e.key === "ArrowDown" ? 1 : -1), { scroll: true });
+      moveVertical(e.key === "ArrowDown" ? 1 : -1);
       return;
-    case "PageDown":
-    case "PageUp":
+    case "ArrowRight":
+    case "ArrowLeft":
+      if (query) return; // caret movement in the search box
       e.preventDefault();
-      updateSelection(selected + (e.key === "PageDown" ? 8 : -8), { scroll: true });
+      updateSelection(selected + (e.key === "ArrowRight" ? 1 : -1), { scroll: true });
       return;
     case "Home":
     case "End":
-      if (query) return; // caret movement in the search box
+      if (query) return;
       e.preventDefault();
       updateSelection(e.key === "Home" ? 0 : view.length - 1, { scroll: true });
       return;
@@ -642,7 +857,7 @@ function onKeyDown(e: KeyboardEvent): void {
       return;
     case "Tab": {
       e.preventDefault();
-      const i = FILTERS.findIndex((f) => f.id === filter);
+      const i = FILTERS.findIndex((x) => x.id === filter);
       setFilter(FILTERS[(i + (e.shiftKey ? FILTERS.length - 1 : 1)) % FILTERS.length].id);
       return;
     }
@@ -655,7 +870,7 @@ function onKeyDown(e: KeyboardEvent): void {
     return;
   }
 
-  if (searchMode) {
+  if (searchMode && query) {
     if (e.altKey && /^[1-9]$/.test(e.key)) {
       e.preventDefault();
       void choose(Number(e.key) - 1);
@@ -674,7 +889,12 @@ function onKeyDown(e: KeyboardEvent): void {
 
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const k = e.key.toLowerCase();
-  if (/^[1-9]$/.test(k)) {
+  if (e.key === " " && !searchMode) {
+    e.preventDefault();
+    openQuickLook(selected);
+  } else if (searchMode) {
+    // "/" was pressed: everything types into the search box.
+  } else if (/^[1-9]$/.test(k)) {
     e.preventDefault();
     void choose(Number(k) - 1);
   } else if (k === "p") {
@@ -690,7 +910,7 @@ function onKeyDown(e: KeyboardEvent): void {
     e.preventDefault();
     searchMode = true;
     render("none");
-  } else if (e.key.length === 1 && e.key !== " ") {
+  } else if (e.key.length === 1) {
     // Any other printable key starts a search and is typed normally.
     searchMode = true;
   }
@@ -698,52 +918,63 @@ function onKeyDown(e: KeyboardEvent): void {
 
 // ---------------------------------------------------------------- wiring
 
-let lastPointer = { x: -1, y: -1 };
-
 function wireEvents(): void {
   document.addEventListener("keydown", onKeyDown);
   search.addEventListener("input", () => setQuery(search.value));
   // Keep typing focus in the search box whatever is clicked.
   document.addEventListener("mousedown", (e) => {
     const t = e.target as HTMLElement;
-    if (!t.closest("input, textarea, #settings, .stage pre, .stage .prose")) e.preventDefault();
+    if (!t.closest("input, textarea, .sheet, .ql-body")) e.preventDefault();
   });
 
-  list.addEventListener("mousemove", (e) => {
+  // Window mode: drag the bar to move, double-click it to go full screen.
+  bar.addEventListener("mousedown", (e) => {
+    if (display() !== "window" || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, label, input, nav")) return;
+    void api.startDragging();
+  });
+  bar.addEventListener("dblclick", (e) => {
+    if (display() !== "window") return;
+    if ((e.target as HTMLElement).closest("button, label, input, nav")) return;
+    void setDisplay("fullscreen");
+  });
+
+  field.addEventListener("mousemove", (e) => {
     if (e.clientX === lastPointer.x && e.clientY === lastPointer.y) return;
-    // The first event after opening is Chromium's synthetic one for a cursor
-    // that is merely resting over the list; only real movement selects.
+    // The first event after opening is Chromium's synthetic one for a
+    // cursor merely resting over the deck; only real movement selects.
     const first = lastPointer.x < 0;
     lastPointer = { x: e.clientX, y: e.clientY };
     if (first) return;
-    const el = (e.target as HTMLElement).closest<HTMLElement>(".row[data-index]");
+    const el = (e.target as HTMLElement).closest<HTMLElement>(".slot");
     if (el && Number(el.dataset.index) !== selected) updateSelection(Number(el.dataset.index));
   });
-  list.addEventListener("click", (e) => {
+  stage.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest("[data-retry]")) return void loadItems("enter");
-    const el = t.closest<HTMLElement>(".row[data-index]");
-    if (el) void choose(Number(el.dataset.index), e.shiftKey);
+    if (t.closest("[data-retry]")) return void loadItems("bubble");
+    const el = t.closest<HTMLElement>(".slot");
+    if (el) return void choose(Number(el.dataset.index), e.shiftKey);
+    // Clicking empty space dismisses the overlay, like Mission Control.
+    if (display() === "fullscreen" && !t.closest(".empty")) close();
+  });
+  stage.addEventListener("contextmenu", (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>(".slot");
+    if (!el) return;
+    e.preventDefault();
+    updateSelection(Number(el.dataset.index));
+    openQuickLook(Number(el.dataset.index));
   });
 
-  preview.addEventListener("click", (e) => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
-    if (act === "paste") void choose(selected);
-    else if (act === "plain") void choose(selected, true);
-    else if (act === "pin") void togglePin(selected);
-    else if (act === "queue") void toggleQueue(selected);
-    else if (act === "copy") void copyOnly(selected);
-    else if (act === "delete") void remove(selected);
-  });
-  preview.addEventListener("mousemove", (e) => {
-    const stage = (e.target as HTMLElement).closest<HTMLElement>(".stage");
-    if (!stage || motionReduced()) return;
-    const r = stage.getBoundingClientRect();
-    stage.style.setProperty("--mx", `${e.clientX - r.left}px`);
-    stage.style.setProperty("--my", `${e.clientY - r.top}px`);
-  });
-  preview.addEventListener("dblclick", (e) => {
-    if ((e.target as HTMLElement).closest(".stage")) void choose(selected);
+  quicklook.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("[data-ql-close]")) return void closeQuickLook();
+    const act = t.closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (!act) return;
+    const i = selected;
+    if (act === "paste" || act === "plain") void closeQuickLook().then(() => choose(i, act === "plain"));
+    else if (act === "copy") void closeQuickLook().then(() => copyOnly(i));
+    else if (act === "pin") void closeQuickLook().then(() => togglePin(i));
+    else if (act === "delete") void closeQuickLook().then(() => remove(i));
   });
 
   filtersNav.addEventListener("click", (e) => {
@@ -763,6 +994,8 @@ function wireEvents(): void {
     renderChrome();
   });
   $("settings-btn").addEventListener("click", () => openSettings(settings, status, onSettingsSaved));
+  $("mode-toggle").addEventListener("click", () => void setDisplay(display() === "fullscreen" ? "window" : "fullscreen"));
+  $("close-btn").addEventListener("click", () => close());
   banner.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     if (t.closest("[data-dismiss]")) {
@@ -773,79 +1006,101 @@ function wireEvents(): void {
     }
   });
 
-  media.dark.addEventListener("change", () => applyAppearance(settings));
-  media.reduce.addEventListener("change", () => applyAppearance(settings));
+  let resizeFrame = 0;
+  new ResizeObserver(() => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      if (settings && !field.classList.contains("leaving")) render("none", view[selected]?.id);
+    });
+  }).observe(stage);
+
+  media.reduce.addEventListener("change", () => applyMotion(settings));
 
   void on("history-changed", () => void loadItems("flip"));
   void on<Status>("status-changed", (s) => {
     status = s;
-    applyWindowStyle(s);
+    root.dataset.glass = s.glass ? "on" : "off";
     render("none", view[selected]?.id);
   });
   void on<Settings>("settings-changed", (s) => {
     settings = s;
-    applyAppearance(s);
+    applyMotion(s);
     renderChrome();
   });
   // Warm-window lifecycle (only when "keep dashboard ready" is on).
   void on<string>("dashboard-shown", (m) => void reopen(m));
   void on("dashboard-hidden", () => {
-    panel.classList.remove("closing", "entered");
+    app.classList.remove("leaving", "entered");
+    field.classList.remove("leaving");
     closeSettings();
+    void closeQuickLook();
   });
 }
 
 function onSettingsSaved(next: Settings): void {
+  const modeChanged = next.displayMode !== display();
   settings = next;
-  applyAppearance(next);
+  applyMotion(next);
+  if (modeChanged) {
+    root.dataset.display = next.displayMode;
+    requestAnimationFrame(() => render("bubble", view[selected]?.id));
+  }
   renderChrome();
 }
 
 function playEnter(): void {
-  panel.classList.remove("closing", "entered");
-  void panel.offsetWidth;
-  panel.classList.add("entered");
+  app.classList.remove("leaving", "entered");
+  void app.offsetWidth;
+  app.classList.add("entered");
 }
 
 async function reopen(nextMode: string): Promise<void> {
   mode = nextMode;
-  lastPointer = { x: -1, y: -1 };
   closing = false;
   filter = "all";
   searchMode = false;
   query = "";
   search.value = "";
   selected = 0;
+  lastPointer = { x: -1, y: -1 };
   [settings, status] = await Promise.all([api.getSettings(), api.getStatus()]);
-  applyAppearance(settings);
-  applyWindowStyle(status);
-  listScroll.scrollTop = 0;
-  await loadItems("enter");
+  applyMotion(settings);
+  root.dataset.glass = status.glass ? "on" : "off";
+  root.dataset.display = display();
+  stage.scrollTop = 0;
+  field.classList.remove("leaving");
   playEnter();
+  await loadItems("bubble");
   search.focus();
   if (mode === "settings") openSettings(settings, status, onSettingsSaved);
 }
 
 async function init(): Promise<void> {
   hydrateIcons();
+  app.querySelector(".mark")!.innerHTML = mark;
   filtersNav.insertAdjacentHTML(
     "beforeend",
-    FILTERS.map((f) => `<button type="button" role="tab" data-filter="${f.id}">${f.label}</button>`).join(""),
+    FILTERS.map((x) => `<button type="button" role="tab" data-filter="${x.id}">${x.label}</button>`).join(""),
   );
-  list.insertAdjacentHTML("beforeend", skeleton());
   wireEvents();
   [settings, status] = await Promise.all([api.getSettings(), api.getStatus()]);
-  applyAppearance(settings);
-  applyWindowStyle(status);
+  applyMotion(settings);
+  root.dataset.glass = status.glass ? "on" : "off";
+  root.dataset.display = display();
   await document.fonts.ready;
-  await loadItems("enter");
+  try {
+    items = await api.listItems();
+  } catch (err) {
+    loadError = String(err);
+  }
+  // Show the window first, then bubble the tiles in once it has its size.
+  void api.ready();
+  await frame();
+  await frame();
+  playEnter();
+  render("bubble");
   moveFilterIndicator(true);
-  // Show the window only once the first frame has content.
-  requestAnimationFrame(() => {
-    playEnter();
-    search.focus();
-    void api.ready();
-  });
+  search.focus();
   if (mode === "settings") openSettings(settings, status, onSettingsSaved);
 }
 

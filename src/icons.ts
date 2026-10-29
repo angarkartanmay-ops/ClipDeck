@@ -29,6 +29,10 @@ export const icons: Record<string, string> = {
   folder: svg('<path d="M3.8 7.6A2.6 2.6 0 0 1 6.4 5h3.4l2 2.1h5.8a2.6 2.6 0 0 1 2.6 2.6v6.7a2.6 2.6 0 0 1-2.6 2.6H6.4a2.6 2.6 0 0 1-2.6-2.6z"/>'),
   back: svg('<path d="M14.5 6 8.5 12l6 6"/>'),
   close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
+  maximize: svg('<path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15"/>'),
+  windowed: svg('<rect x="4" y="6.5" width="16" height="11" rx="2.4"/><path d="M4 10h16"/>'),
+  eye: svg('<path d="M2.8 12s3.4-6.2 9.2-6.2 9.2 6.2 9.2 6.2-3.4 6.2-9.2 6.2S2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.6"/>'),
+  display: svg('<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.2"/><path d="M9 19.5h6M12 16v3.5"/>'),
   keyboard: svg('<rect x="3" y="6" width="18" height="12" rx="2.6"/><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8 14h8"/>'),
   history: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"/><path d="M4.5 4.5V9H9M12 8v4.2l2.8 1.8"/>'),
   shield: svg('<path d="M12 3.5 19 6v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/>'),
@@ -49,6 +53,9 @@ export function hydrateIcons(root: ParentNode = document): void {
 }
 
 /** Empty-state illustration: a small fanned deck of cards. */
+/** Brand glyph: a small stack of cards. */
+export const mark = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="7" y="3.5" width="12" height="15" rx="2.6" opacity=".45"/><rect x="5" y="5.5" width="12" height="15" rx="2.6" fill="currentColor" fill-opacity=".14"/></svg>`;
+
 export const deckArt = `<svg viewBox="0 0 120 92" width="120" height="92" aria-hidden="true">
   <g fill="none" stroke-width="1.4">
     <rect x="34" y="12" width="56" height="70" rx="9" transform="rotate(10 62 47)" class="art-back"/>

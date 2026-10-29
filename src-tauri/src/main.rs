@@ -60,6 +60,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::list_items,
             commands::get_thumb,
+            commands::get_preview,
             commands::paste_item,
             commands::copy_item,
             commands::set_pinned,
