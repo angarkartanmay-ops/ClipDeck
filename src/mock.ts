@@ -30,12 +30,12 @@ let settings: Settings = {
   historyLimit: 50, maxDiskMb: 500, maxItemMb: 64,
   hotkeyDashboard: "Ctrl+Shift+V", hotkeyQueue: "Ctrl+Shift+Q", slotModifiers: "Ctrl+Alt",
   pasteOnSelect: true, restoreClipboard: false, position: "cursor", keepDashboardWarm: false,
-  theme: "system", accent: "#7c5cff", reduceMotion: "system",
+  theme: "system", accent: "#4a86e8", reduceMotion: "system",
   captureImages: true, captureFiles: true, captureRich: true,
   blocklist: ["1password.exe", "bitwarden.exe", "keepass.exe"], encrypt: false, clearOnExit: false, autostart: true,
 };
 
-const status: Status = { paused: false, queueActive: false, queue: [], hotkeyErrors: [], itemCount: 9, diskBytes: 2_500_000, canPaste: true, version: "0.1.0-dev" };
+const status: Status = { paused: false, queueActive: false, queue: [], hotkeyErrors: [], itemCount: 9, diskBytes: 2_500_000, canPaste: true, glass: true, nativeCorners: true, version: "0.1.0-dev" };
 
 export async function mockApi<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const id = args.id as number;

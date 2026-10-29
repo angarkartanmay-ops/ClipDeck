@@ -58,6 +58,8 @@ export interface Status {
   itemCount: number;
   diskBytes: number;
   canPaste: boolean;
+  glass: boolean;
+  nativeCorners: boolean;
   version: string;
 }
 

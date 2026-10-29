@@ -33,9 +33,12 @@ you a fast, keyboard-friendly dashboard to paste any of it.
 - **Captures everything you copy**: plain text, rich text (HTML/RTF), images
   (PNG and DIB) and file lists, with the original formats preserved so rich
   text pastes as rich text and images paste as images.
-- **Floating dashboard** on <kbd>Ctrl+Shift+V</kbd>: thumbnails, source app,
-  timestamps, fuzzy search, filters, pins, smooth animations, dark and light
-  themes, accent colours, and support for "reduce motion".
+- **Floating glass deck** on <kbd>Ctrl+Shift+V</kbd>: a compact 640×420
+  panel with real Windows acrylic that blurs whatever is behind it, tinted
+  with a soft gradient from your accent colour. A keyboard-first list sits
+  beside a live preview (full-size screenshots, code, links, colours, file
+  lists), with fuzzy search, filters, pins, a gliding selection, smooth
+  open/close and hover motion, light and dark themes, and "reduce motion" support.
 - **Pastes into the app you were using**: pick an item and ClipDeck returns
   focus to the previous window and pastes it for you.
 - **Slot hotkeys**: <kbd>Ctrl+Alt+1</kbd>…<kbd>9</kbd> paste recent items

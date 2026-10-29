@@ -28,6 +28,10 @@ pub struct Status {
     pub disk_bytes: i64,
     /// Whether choosing an item will paste into a window (vs. only copy).
     pub can_paste: bool,
+    /// The dashboard window has a native acrylic (blurred) backdrop.
+    pub glass: bool,
+    /// Windows draws the dashboard's rounded corners and shadow.
+    pub native_corners: bool,
     pub version: String,
 }
 
@@ -48,6 +52,8 @@ pub fn status(app: &AppHandle) -> Status {
         item_count,
         disk_bytes,
         can_paste: state.settings().paste_on_select && has_target,
+        glass: dashboard::glass_supported(),
+        native_corners: dashboard::native_corners(),
         version: app.package_info().version.to_string(),
     };
     status
@@ -218,6 +224,9 @@ pub fn apply_settings(
         .map_err(|e| format!("save settings: {e}"))?;
     *state.settings.write().unwrap() = new.clone();
 
+    if new.theme != old.theme {
+        dashboard::apply_theme(app, &new);
+    }
     if new.hotkey_dashboard != old.hotkey_dashboard
         || new.hotkey_queue != old.hotkey_queue
         || new.slot_modifiers != old.slot_modifiers

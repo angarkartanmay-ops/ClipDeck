@@ -51,8 +51,8 @@ npm run licenses
   polling, and no payloads kept in RAM.
 - Never add network access, telemetry or remote content.
 - New dependencies must be MIT, Apache-2.0, BSD, ISC, Zlib or similarly
-  permissive (enforced by `deny.toml` and `npm run licenses`). No GPL,
-  AGPL or LGPL.
+  permissive (enforced by `deny.toml` and `npm run licenses`); fonts may be
+  SIL OFL 1.1. No GPL, AGPL or LGPL.
 - Every source file starts with:
   `Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0.`
 - Match the surrounding code style; run `cargo fmt`.

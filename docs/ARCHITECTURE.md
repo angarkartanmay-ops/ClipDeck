@@ -48,6 +48,24 @@ The frontend (`src/`) is plain TypeScript bundled by Vite (~11 KB gzipped JS).
 `src/mock.ts` lets the dashboard run in an ordinary browser (`npm run dev`)
 with sample data for UI work.
 
+## Dashboard window
+
+- 640×420 logical pixels, frameless, always on top, created hidden and shown
+  once the page has rendered its first frame.
+- Background: Tauri's `Effect::Acrylic`. On Windows 11 22H2+ this is DWM's
+  transient-window system backdrop (a true blur of the windows behind); on
+  Windows 10 1809+ it is the accent-policy acrylic. The page body is
+  transparent and lays a thin tint plus an accent-coloured gradient over it.
+  Older systems get an opaque panel (`Status.glass = false`).
+- Windows 11 draws the rounded corners, 1 px border and shadow
+  (`DWMWA_WINDOW_CORNER_PREFERENCE`); the window theme follows the app's
+  theme setting so the acrylic tint matches light/dark.
+- Motion is transform/opacity only: a selection pill that glides between
+  rows, FLIP transitions when items move or disappear, a cascade on open,
+  and a cross-fade into settings. Everything collapses to instant changes
+  when "reduce motion" is on (system or app setting).
+- Fonts (Geist, Geist Mono) are bundled locally under the SIL OFL 1.1.
+
 ## Capture
 
 - Event driven: `AddClipboardFormatListener`, no polling.

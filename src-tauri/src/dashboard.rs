@@ -7,26 +7,38 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Theme, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWM_WINDOW_CORNER_PREFERENCE,
+};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
+use crate::settings::Settings;
 use crate::state::AppState;
 
 pub const LABEL: &str = "dashboard";
-/// Logical size of the window; the visible panel is inset to leave room for shadows.
-const WIDTH: f64 = 820.0;
-const HEIGHT: f64 = 600.0;
+/// Logical size of the window. The panel fills it edge to edge; Windows 11
+/// draws the rounded corners, border and shadow.
+const WIDTH: f64 = 640.0;
+const HEIGHT: f64 = 420.0;
 
 /// Trims WebView2 helper processes and background work to keep the open
 /// dashboard light. The first three features are Tauri's own defaults.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,SpareRendererForSitePerProcess      --renderer-process-limit=1 --disable-background-networking --disable-component-update      --disable-extensions --disable-sync --no-pings";
+const BROWSER_ARGS: &str = concat!(
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,SpareRendererForSitePerProcess ",
+    "--renderer-process-limit=1 --disable-background-networking --disable-component-update ",
+    "--disable-extensions --disable-sync --no-pings"
+);
 
 /// Set once the dashboard has been shown, cleared when it closes.
 static SHOWN: AtomicBool = AtomicBool::new(false);
@@ -54,7 +66,16 @@ pub fn toggle(app: &AppHandle, target: Option<isize>, mode: &str) {
         .inner_size(WIDTH, HEIGHT)
         .decorations(false)
         .transparent(true)
-        .shadow(false)
+        .shadow(true)
+        // Native acrylic: blurs whatever is behind the window. The tint
+        // colour is only used by Windows 10's acrylic implementation.
+        .effects(
+            EffectsBuilder::new()
+                .effect(Effect::Acrylic)
+                .color(Color(24, 24, 30, 96))
+                .build(),
+        )
+        .theme(theme(&state.settings()))
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
@@ -64,8 +85,9 @@ pub fn toggle(app: &AppHandle, target: Option<isize>, mode: &str) {
         .focused(false)
         .additional_browser_args(BROWSER_ARGS)
         .build();
-    if let Err(err) = built {
-        eprintln!("ClipDeck: cannot open dashboard: {err}");
+    match built {
+        Ok(window) => round_corners(&window),
+        Err(err) => eprintln!("ClipDeck: cannot open dashboard: {err}"),
     }
     // The page calls `dashboard_ready` after its first render, which shows it.
 }
@@ -96,6 +118,36 @@ pub fn close(app: &AppHandle) {
         let _ = window.emit("dashboard-hidden", ());
     } else {
         let _ = window.destroy();
+    }
+}
+
+/// Window theme for the acrylic tint: follows the app setting, or the
+/// system when set to "system".
+pub fn theme(settings: &Settings) -> Option<Theme> {
+    match settings.theme.as_str() {
+        "dark" => Some(Theme::Dark),
+        "light" => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+pub fn apply_theme(app: &AppHandle, settings: &Settings) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_theme(theme(settings));
+    }
+}
+
+/// Asks Windows 11 for rounded corners on the frameless window (no-op on 10).
+fn round_corners(window: &WebviewWindow) {
+    let Ok(hwnd) = window.hwnd() else { return };
+    let preference: DWM_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            HWND(hwnd.0 as _),
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const _ as *const _,
+            std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        );
     }
 }
 
@@ -137,7 +189,7 @@ fn placement(centered: bool) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>
                 work.top + (work.bottom - work.top - h) / 2,
             )
         } else {
-            (cursor.x - w / 2, cursor.y - (60.0 * scale) as i32)
+            (cursor.x - w / 2, cursor.y - (36.0 * scale) as i32)
         };
         let x = x.clamp(work.left, work.right - w);
         let y = y.clamp(work.top, work.bottom - h);
@@ -146,4 +198,42 @@ fn placement(centered: bool) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>
             PhysicalSize::new(w as u32, h as u32),
         ))
     }
+}
+
+/// Windows build number (e.g. 22631), read once from the registry.
+fn os_build() -> u32 {
+    use std::sync::OnceLock;
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    static BUILD: OnceLock<u32> = OnceLock::new();
+    *BUILD.get_or_init(|| unsafe {
+        let mut buf = [0u16; 32];
+        let mut len = std::mem::size_of_val(&buf) as u32;
+        let status = RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
+            w!("CurrentBuildNumber"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            Some(&mut len),
+        );
+        if status.is_err() {
+            return 0;
+        }
+        String::from_utf16_lossy(&buf)
+            .trim_end_matches('\0')
+            .parse()
+            .unwrap_or(0)
+    })
+}
+
+/// Acrylic needs Windows 10 1809 (build 17763) or later.
+pub fn glass_supported() -> bool {
+    os_build() >= 17763
+}
+
+/// Windows 11 rounds and shadows the window natively.
+pub fn native_corners() -> bool {
+    os_build() >= 22000
 }

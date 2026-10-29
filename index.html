@@ -7,29 +7,44 @@
     <title>ClipDeck</title>
   </head>
   <body>
-    <div id="stage">
-      <section id="panel" class="panel" aria-label="ClipDeck clipboard history">
-        <header class="top">
-          <div class="search">
-            <span class="search-icon" data-icon="search"></span>
-            <input id="search" type="text" placeholder="Search history" autocomplete="off" spellcheck="false" />
-            <kbd id="search-hint">/</kbd>
+    <section id="panel" class="panel" aria-label="ClipDeck clipboard history">
+      <div class="tint" aria-hidden="true"></div>
+
+      <header class="top">
+        <label class="search">
+          <span class="search-icon" data-icon="search"></span>
+          <input id="search" type="text" placeholder="Search clipboard" autocomplete="off" spellcheck="false" aria-label="Search clipboard history" />
+          <kbd id="search-hint" class="key">/</kbd>
+        </label>
+        <nav id="filters" class="filters" role="tablist" aria-label="Filter">
+          <span class="filter-indicator" aria-hidden="true"></span>
+        </nav>
+        <div class="tools">
+          <button id="queue-toggle" class="tool" type="button" aria-label="Paste queue"><span data-icon="queue"></span><b id="queue-count"></b></button>
+          <button id="pause-toggle" class="tool" type="button" aria-label="Pause capture"><span data-icon="pause"></span></button>
+          <button id="settings-btn" class="tool" type="button" aria-label="Settings"><span data-icon="gear"></span></button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <main class="body">
+        <div id="list-scroll" class="list-scroll">
+          <div id="list" class="list" role="listbox" aria-label="Clipboard items">
+            <span id="highlight" class="highlight" aria-hidden="true"></span>
           </div>
-          <nav id="filters" class="filters" role="tablist"></nav>
-          <button id="queue-toggle" class="icon-btn" title="Paste queue"><span data-icon="queue"></span><b id="queue-count"></b></button>
-          <button id="pause-toggle" class="icon-btn" title="Pause capture"><span data-icon="pause"></span></button>
-          <button id="settings-btn" class="icon-btn" title="Settings"><span data-icon="gear"></span></button>
-        </header>
-        <div id="banner" class="banner" hidden></div>
-        <main id="grid" class="grid" role="listbox" aria-label="Clipboard items"></main>
-        <footer class="bottom">
-          <div id="hints" class="hints"></div>
-          <div id="footer-status" class="footer-status"></div>
-        </footer>
-        <div id="settings" class="settings" hidden></div>
-        <div id="toast" class="toast" role="status" aria-live="polite"></div>
-      </section>
-    </div>
+        </div>
+        <aside id="preview" class="preview" aria-live="polite"></aside>
+      </main>
+
+      <footer class="bottom">
+        <div id="status" class="status"></div>
+        <div id="hints" class="hints"></div>
+      </footer>
+
+      <div id="settings" class="settings" hidden></div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

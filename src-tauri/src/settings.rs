@@ -65,7 +65,7 @@ impl Default for Settings {
             position: "cursor".into(),
             keep_dashboard_warm: false,
             theme: "system".into(),
-            accent: "#7c5cff".into(),
+            accent: "#4a86e8".into(),
             reduce_motion: "system".into(),
             capture_images: true,
             capture_files: true,
