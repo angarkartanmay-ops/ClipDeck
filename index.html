@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClipDeck</title>
+  </head>
+  <body>
+    <div id="stage">
+      <section id="panel" class="panel" aria-label="ClipDeck clipboard history">
+        <header class="top">
+          <div class="search">
+            <span class="search-icon" data-icon="search"></span>
+            <input id="search" type="text" placeholder="Search history" autocomplete="off" spellcheck="false" />
+            <kbd id="search-hint">/</kbd>
+          </div>
+          <nav id="filters" class="filters" role="tablist"></nav>
+          <button id="queue-toggle" class="icon-btn" title="Paste queue"><span data-icon="queue"></span><b id="queue-count"></b></button>
+          <button id="pause-toggle" class="icon-btn" title="Pause capture"><span data-icon="pause"></span></button>
+          <button id="settings-btn" class="icon-btn" title="Settings"><span data-icon="gear"></span></button>
+        </header>
+        <div id="banner" class="banner" hidden></div>
+        <main id="grid" class="grid" role="listbox" aria-label="Clipboard items"></main>
+        <footer class="bottom">
+          <div id="hints" class="hints"></div>
+          <div id="footer-status" class="footer-status"></div>
+        </footer>
+        <div id="settings" class="settings" hidden></div>
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

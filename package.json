@@ -1,0 +1,24 @@
+{
+  "name": "clipdeck",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lightweight, always-on clipboard manager for Windows",
+  "author": "Tanmay Angarkar",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "licenses": "license-checker --production --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Apache-2.0 OR MIT;MIT OR Apache-2.0\" --excludePrivatePackages"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "license-checker": "^25.0.1",
+    "typescript": "^5",
+    "vite": "^6"
+  }
+}

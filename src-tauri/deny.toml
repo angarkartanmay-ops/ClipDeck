@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0.
+#
+# cargo-deny policy: only permissive licenses may be linked into ClipDeck.
+# Run: cargo deny --manifest-path src-tauri/Cargo.toml check
+
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+all-features = false
+
+[licenses]
+# Permissive licenses only. MPL-2.0 is file-level copyleft that permits
+# distribution in larger works; it enters via Tauri's HTML tooling crates
+# (cssparser, selectors) which are used unmodified. No GPL/AGPL/LGPL.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+  "Unlicense",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# ClipDeck itself (PolyForm Noncommercial) is not published to crates.io.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[advisories]
+ignore = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
