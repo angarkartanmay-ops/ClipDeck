@@ -2,7 +2,7 @@
 
 [package]
 name = "clipdeck"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight, always-on clipboard manager for Windows"
 authors = ["Tanmay Angarkar <angarkartanmay@gmail.com>"]
 license-file = "../LICENSE"
