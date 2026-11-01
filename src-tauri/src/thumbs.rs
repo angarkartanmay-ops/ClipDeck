@@ -6,7 +6,7 @@ use std::io::Cursor;
 
 use image::{DynamicImage, ImageFormat};
 
-use crate::clip::{ClipData, DIB, PNG};
+use crate::clip::{ClipData, DIB, MAC_TIFF};
 
 /// Large enough to stay sharp on full-screen tiles at 150% scaling.
 const MAX_W: u32 = 960;
@@ -15,9 +15,14 @@ const MAX_H: u32 = 640;
 const PREVIEW_MAX: u32 = 2560;
 
 fn decode(data: &ClipData) -> Option<DynamicImage> {
-    data.get(PNG)
+    data.png()
         .and_then(|png| image::load_from_memory_with_format(png, ImageFormat::Png).ok())
         .or_else(|| data.get(DIB).and_then(decode_dib))
+        // macOS: many apps copy images as TIFF only.
+        .or_else(|| {
+            data.get(MAC_TIFF)
+                .and_then(|t| image::load_from_memory(t).ok())
+        })
 }
 
 pub fn make(data: &ClipData) -> Option<Vec<u8>> {
@@ -26,7 +31,7 @@ pub fn make(data: &ClipData) -> Option<Vec<u8>> {
 
 /// Full-size PNG for the Quick Look preview. A copied PNG is returned as is.
 pub fn preview(data: &ClipData) -> Option<Vec<u8>> {
-    if let Some(png) = data.get(PNG) {
+    if let Some(png) = data.png() {
         return Some(png.to_vec());
     }
     let img = decode(data)?;

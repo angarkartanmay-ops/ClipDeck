@@ -140,3 +140,9 @@ pub fn close_dashboard(app: AppHandle) {
 pub fn open_data_dir(app: AppHandle) {
     actions::open_data_dir(&app);
 }
+
+/// Opens the OS settings page a notice points at (e.g. macOS Accessibility).
+#[tauri::command]
+pub fn open_system_settings(kind: String) {
+    crate::platform::open_system_settings(&kind);
+}

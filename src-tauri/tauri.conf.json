@@ -12,24 +12,26 @@
   "app": {
     "withGlobalTauri": false,
     "windows": [],
+    "macOSPrivateApi": true,
     "security": {
       "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": "all",
     "publisher": "Tanmay Angarkar",
     "copyright": "Copyright (c) 2026 Tanmay Angarkar",
     "category": "Productivity",
     "shortDescription": "Clipboard history with a fast floating dashboard",
-    "longDescription": "ClipDeck keeps a local history of everything you copy (text, rich text, images and files) and lets you paste any of it from a floating dashboard opened with Ctrl+Shift+V.",
+    "longDescription": "ClipDeck keeps a local history of everything you copy (text, rich text, images and files) and lets you paste any of it from a floating dashboard. Everything stays on the device: no network access, no telemetry.",
     "license": "PolyForm-Noncommercial-1.0.0",
     "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "windows": {
@@ -38,6 +40,15 @@
         "installMode": "currentUser",
         "displayLanguageSelector": false
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": true
+    },
+    "linux": {
+      "deb": { "section": "utils" },
+      "appimage": { "bundleMediaFramework": false }
     }
   }
 }

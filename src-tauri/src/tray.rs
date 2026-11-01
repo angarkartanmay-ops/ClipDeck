@@ -12,6 +12,13 @@ use crate::{actions, dashboard};
 
 pub const TRAY_ID: &str = "clipdeck";
 
+#[cfg(windows)]
+const AUTOSTART_LABEL: &str = "Start with Windows";
+#[cfg(target_os = "macos")]
+const AUTOSTART_LABEL: &str = "Open at Login";
+#[cfg(not(any(windows, target_os = "macos")))]
+const AUTOSTART_LABEL: &str = "Start at login";
+
 /// Menu items whose check marks change at runtime.
 pub struct TrayItems {
     pub pause: CheckMenuItem<Wry>,
@@ -30,7 +37,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
-        "Start with Windows",
+        AUTOSTART_LABEL,
         true,
         settings.autostart,
         None::<&str>,
@@ -81,6 +88,17 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 dashboard::toggle(tray.app_handle(), None, "");
             }
         });
+    // macOS menu-bar icons are monochrome templates that follow the menu
+    // bar's light/dark appearance; elsewhere the app icon is used.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .icon(tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/tray-template.png"
+            ))?)
+            .icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }

@@ -26,10 +26,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_QUERYENDSESSION, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 
-use crate::clip::{self, ReadOptions, ReadOutcome};
+use super::{clipboard, hotkeys, source_app};
+use crate::actions;
+use crate::clip::{ReadOptions, ReadOutcome};
 use crate::state::AppState;
 use crate::worker::Job;
-use crate::{actions, hotkeys, source_app};
 
 const CLASS_NAME: PCWSTR = w!("ClipDeck.CoreWindow");
 const WM_APP_RELOAD_HOTKEYS: u32 = WM_APP + 1;
@@ -182,7 +183,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 
 fn on_hotkey(id: i32) {
     // Remember the window to paste into before the dashboard takes focus.
-    let target = crate::paste::foreground_target();
+    let target = super::foreground_target();
     let app = context().app.clone();
     std::thread::spawn(move || match id {
         hotkeys::ID_DASHBOARD => actions::dashboard_hotkey(&app, target),
@@ -196,7 +197,7 @@ fn on_hotkey(id: i32) {
 
 fn on_clipboard_update(hwnd: HWND) {
     let state = state();
-    if state.paused.load(Ordering::Relaxed) {
+    if !state.capture_allowed() {
         return;
     }
     unsafe {
@@ -222,7 +223,7 @@ fn on_clipboard_update(hwnd: HWND) {
             rich: settings.capture_rich,
             max_bytes: settings.max_item_bytes(),
         };
-        match clip::read(hwnd, &opts) {
+        match clipboard::read(hwnd, &opts) {
             Ok(ReadOutcome::Data(data)) => {
                 let created_at = SystemTime::now()
                     .duration_since(UNIX_EPOCH)

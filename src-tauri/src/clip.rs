@@ -1,33 +1,46 @@
 // Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0.
 
-//! Reading and writing the Windows clipboard, and the on-disk format of a
-//! captured item (a list of named clipboard formats with their raw bytes).
+//! A captured clipboard item: a list of named formats with their raw bytes,
+//! exactly as the operating system offered them, so pasting is faithful.
+//! Format names are the platform's own (Windows clipboard formats, macOS
+//! pasteboard types, X11 targets); this module understands all of them.
 
 use std::hash::{DefaultHasher, Hasher};
-use std::time::Duration;
+use std::io::Cursor;
 
 use serde_json::json;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
-use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    RegisterClipboardFormatW, SetClipboardData,
-};
-use windows::Win32::System::Memory::{
-    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
-};
 
+// Windows clipboard formats.
 pub const TEXT: &str = "CF_UNICODETEXT";
 pub const DIB: &str = "CF_DIB";
 pub const HDROP: &str = "CF_HDROP";
 pub const PNG: &str = "PNG";
 pub const HTML: &str = "HTML Format";
 pub const RTF: &str = "Rich Text Format";
+#[cfg(windows)]
 pub const DROP_EFFECT: &str = "Preferred DropEffect";
 
-const CF_DIB: u32 = 8;
-const CF_UNICODETEXT: u32 = 13;
-const CF_HDROP: u32 = 15;
+// macOS pasteboard types (UTIs). File URLs are stored one per line.
+pub const MAC_TEXT: &str = "public.utf8-plain-text";
+pub const MAC_HTML: &str = "public.html";
+pub const MAC_RTF: &str = "public.rtf";
+pub const MAC_PNG: &str = "public.png";
+pub const MAC_TIFF: &str = "public.tiff";
+pub const MAC_FILES: &str = "public.file-url";
+
+// X11 selection targets (Linux).
+pub const X_TEXT: &str = "UTF8_STRING";
+pub const X_HTML: &str = "text/html";
+pub const X_PNG: &str = "image/png";
+pub const X_FILES: &str = "text/uri-list";
+
+/// Formats that carry what the user actually sees; identity is based on these.
+const PAYLOAD: &[&str] = &[
+    TEXT, DIB, PNG, HDROP, MAC_TEXT, MAC_PNG, MAC_TIFF, MAC_FILES, X_TEXT, X_PNG, X_FILES,
+];
+const PLAIN_TEXT: &[&str] = &[TEXT, MAC_TEXT, X_TEXT];
+const RICH: &[&str] = &[HTML, RTF, MAC_HTML, MAC_RTF, X_HTML];
+const PNGS: &[&str] = &[PNG, MAC_PNG, X_PNG];
 
 pub struct ClipFormat {
     pub name: String,
@@ -39,6 +52,33 @@ pub struct ClipData {
     pub formats: Vec<ClipFormat>,
 }
 
+pub struct ReadOptions {
+    pub images: bool,
+    pub files: bool,
+    pub rich: bool,
+    pub max_bytes: usize,
+}
+
+impl ReadOptions {
+    /// Everything, used to snapshot the clipboard before a paste.
+    #[cfg(not(target_os = "linux"))]
+    pub fn everything() -> Self {
+        Self {
+            images: true,
+            files: true,
+            rich: true,
+            max_bytes: 512 * 1024 * 1024,
+        }
+    }
+}
+
+pub enum ReadOutcome {
+    /// The source asked clipboard tools to ignore this content (password managers).
+    Excluded,
+    Empty,
+    Data(ClipData),
+}
+
 impl ClipData {
     pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.formats
@@ -47,8 +87,12 @@ impl ClipData {
             .map(|f| f.data.as_slice())
     }
 
-    pub fn has(&self, name: &str) -> bool {
-        self.formats.iter().any(|f| f.name == name)
+    fn first(&self, names: &[&'static str]) -> Option<(&'static str, &[u8])> {
+        names.iter().find_map(|n| self.get(n).map(|d| (*n, d)))
+    }
+
+    pub fn has_any(&self, names: &[&'static str]) -> bool {
+        self.first(names).is_some()
     }
 
     pub fn total_size(&self) -> usize {
@@ -56,16 +100,26 @@ impl ClipData {
     }
 
     pub fn text(&self) -> Option<String> {
-        self.get(TEXT).map(decode_utf16)
+        let (name, data) = self.first(PLAIN_TEXT)?;
+        Some(if name == TEXT {
+            decode_utf16(data)
+        } else {
+            String::from_utf8_lossy(data).into_owned()
+        })
+    }
+
+    /// PNG bytes, whichever platform name they were stored under.
+    pub fn png(&self) -> Option<&[u8]> {
+        self.first(PNGS).map(|(_, d)| d)
     }
 
     /// Only the plain text format, for "paste as plain text".
     pub fn plain_text_only(&self) -> Option<ClipData> {
-        let data = self.get(TEXT)?.to_vec();
+        let (name, data) = self.first(PLAIN_TEXT)?;
         Some(ClipData {
             formats: vec![ClipFormat {
-                name: TEXT.into(),
-                data,
+                name: name.into(),
+                data: data.to_vec(),
             }],
         })
     }
@@ -76,13 +130,22 @@ impl ClipData {
         for f in &self.formats {
             // Rich formats often embed volatile metadata (e.g. source URLs or
             // timestamps), so identity is based on the user-visible payload.
-            if matches!(f.name.as_str(), TEXT | DIB | PNG | HDROP) {
+            if PAYLOAD.contains(&f.name.as_str()) {
                 hasher.write(f.name.as_bytes());
                 hasher.write_usize(f.data.len());
                 hasher.write(&f.data);
             }
         }
         format!("{:016x}", hasher.finish())
+    }
+
+    /// Paths of copied files, if this is a file list.
+    pub fn files(&self) -> Option<Vec<String>> {
+        if let Some(drop) = self.get(HDROP) {
+            return Some(parse_hdrop(drop));
+        }
+        self.first(&[MAC_FILES, X_FILES])
+            .map(|(_, list)| parse_uri_list(&String::from_utf8_lossy(list)))
     }
 
     // Serialized layout: "CDK1", u32 count, then per format:
@@ -137,197 +200,6 @@ pub fn decode_utf16(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn format_id(name: &str) -> u32 {
-    match name {
-        TEXT => CF_UNICODETEXT,
-        DIB => CF_DIB,
-        HDROP => CF_HDROP,
-        other => {
-            let w = wide(other);
-            unsafe { RegisterClipboardFormatW(PCWSTR(w.as_ptr())) }
-        }
-    }
-}
-
-/// Keeps the clipboard open for the lifetime of the guard.
-struct OpenGuard;
-
-impl Drop for OpenGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseClipboard();
-        }
-    }
-}
-
-/// Another application may briefly hold the clipboard; retry for ~300 ms.
-fn open(owner: HWND) -> Result<OpenGuard, String> {
-    for attempt in 0..20 {
-        if unsafe { OpenClipboard(Some(owner)) }.is_ok() {
-            return Ok(OpenGuard);
-        }
-        std::thread::sleep(Duration::from_millis(if attempt < 5 { 5 } else { 20 }));
-    }
-    Err("clipboard is locked by another application".into())
-}
-
-fn available(id: u32) -> bool {
-    id != 0 && unsafe { IsClipboardFormatAvailable(id) }.is_ok()
-}
-
-/// Copies one format out of the open clipboard. Returns `None` when the
-/// format is missing or larger than `max_bytes`.
-fn read_format(id: u32, max_bytes: usize) -> Option<Vec<u8>> {
-    if !available(id) {
-        return None;
-    }
-    unsafe {
-        let handle = GetClipboardData(id).ok()?;
-        let hglobal = HGLOBAL(handle.0);
-        let size = GlobalSize(hglobal);
-        if size == 0 || size > max_bytes {
-            return None;
-        }
-        let ptr = GlobalLock(hglobal) as *const u8;
-        if ptr.is_null() {
-            return None;
-        }
-        let data = std::slice::from_raw_parts(ptr, size).to_vec();
-        let _ = GlobalUnlock(hglobal);
-        Some(data)
-    }
-}
-
-pub struct ReadOptions {
-    pub images: bool,
-    pub files: bool,
-    pub rich: bool,
-    pub max_bytes: usize,
-}
-
-impl ReadOptions {
-    /// Everything, used to snapshot the clipboard before a paste.
-    pub fn everything() -> Self {
-        Self {
-            images: true,
-            files: true,
-            rich: true,
-            max_bytes: 512 * 1024 * 1024,
-        }
-    }
-}
-
-pub enum ReadOutcome {
-    /// The source asked monitors to ignore this content (password managers).
-    Excluded,
-    Empty,
-    Data(ClipData),
-}
-
-pub fn read(owner: HWND, opts: &ReadOptions) -> Result<ReadOutcome, String> {
-    let _guard = open(owner)?;
-
-    // Honour the documented opt-out formats used by password managers.
-    if available(format_id("ExcludeClipboardContentFromMonitorProcessing"))
-        || available(format_id("Clipboard Viewer Ignore"))
-    {
-        return Ok(ReadOutcome::Excluded);
-    }
-    if let Some(flag) = read_format(format_id("CanIncludeInClipboardHistory"), 64) {
-        if flag.len() >= 4 && u32::from_le_bytes([flag[0], flag[1], flag[2], flag[3]]) == 0 {
-            return Ok(ReadOutcome::Excluded);
-        }
-    }
-
-    let mut budget = opts.max_bytes;
-    let mut formats = Vec::new();
-    let mut push = |name: &str, formats: &mut Vec<ClipFormat>| {
-        if let Some(mut data) = read_format(format_id(name), budget) {
-            if name == TEXT {
-                let units = data.chunks_exact(2).take_while(|c| c != &[0, 0]).count();
-                data.truncate(units * 2);
-                if data.is_empty() {
-                    return;
-                }
-            }
-            budget = budget.saturating_sub(data.len());
-            formats.push(ClipFormat {
-                name: name.into(),
-                data,
-            });
-        }
-    };
-
-    if available(CF_HDROP) {
-        if !opts.files {
-            return Ok(ReadOutcome::Empty);
-        }
-        push(HDROP, &mut formats);
-        push(DROP_EFFECT, &mut formats);
-        push(TEXT, &mut formats);
-    } else {
-        push(TEXT, &mut formats);
-        if opts.rich {
-            push(HTML, &mut formats);
-            push(RTF, &mut formats);
-        }
-        if opts.images {
-            push(PNG, &mut formats);
-            push(DIB, &mut formats);
-        }
-    }
-
-    let has_text = formats
-        .iter()
-        .any(|f| f.name == TEXT && !decode_utf16(&f.data).trim().is_empty());
-    let has_payload = has_text
-        || formats
-            .iter()
-            .any(|f| matches!(f.name.as_str(), DIB | PNG | HDROP));
-    if !has_payload {
-        return Ok(ReadOutcome::Empty);
-    }
-    Ok(ReadOutcome::Data(ClipData { formats }))
-}
-
-pub fn write(owner: HWND, data: &ClipData) -> Result<(), String> {
-    let _guard = open(owner)?;
-    unsafe {
-        EmptyClipboard().map_err(|e| format!("EmptyClipboard: {e}"))?;
-        for f in &data.formats {
-            // Text formats are stored without terminators; add them back.
-            let terminator: &[u8] = match f.name.as_str() {
-                TEXT => &[0, 0],
-                _ => &[],
-            };
-            let len = f.data.len() + terminator.len();
-            let Ok(hglobal) = GlobalAlloc(GMEM_MOVEABLE, len.max(1)) else {
-                continue;
-            };
-            let ptr = GlobalLock(hglobal) as *mut u8;
-            if ptr.is_null() {
-                let _ = GlobalFree(Some(hglobal));
-                continue;
-            }
-            std::ptr::copy_nonoverlapping(f.data.as_ptr(), ptr, f.data.len());
-            std::ptr::copy_nonoverlapping(
-                terminator.as_ptr(),
-                ptr.add(f.data.len()),
-                terminator.len(),
-            );
-            let _ = GlobalUnlock(hglobal);
-            if SetClipboardData(format_id(&f.name), Some(HANDLE(hglobal.0))).is_err() {
-                let _ = GlobalFree(Some(hglobal));
-            }
-        }
-    }
-    Ok(())
-}
-
 /// What kind of item a capture is, plus what the dashboard shows for it.
 pub struct Analysis {
     pub kind: &'static str,
@@ -343,13 +215,8 @@ pub fn analyze(data: &ClipData) -> Analysis {
     let formats: Vec<&str> = data.formats.iter().map(|f| f.name.as_str()).collect();
     let text = data.text().unwrap_or_default();
     let preview: String = text.chars().take(PREVIEW_CHARS).collect();
-    let image_dims = data
-        .get(PNG)
-        .and_then(png_dimensions)
-        .or_else(|| data.get(DIB).and_then(dib_dimensions));
 
-    if let Some(drop) = data.get(HDROP) {
-        let files = parse_hdrop(drop);
+    if let Some(files) = data.files().filter(|f| !f.is_empty()) {
         let names: Vec<String> = files
             .iter()
             .take(6)
@@ -363,6 +230,11 @@ pub fn analyze(data: &ClipData) -> Analysis {
         };
     }
 
+    let image_dims = data
+        .png()
+        .and_then(png_dimensions)
+        .or_else(|| data.get(DIB).and_then(dib_dimensions))
+        .or_else(|| data.get(MAC_TIFF).and_then(encoded_dimensions));
     let has_text = !text.trim().is_empty();
     if let (Some((w, h)), false) = (image_dims, has_text) {
         return Analysis {
@@ -373,11 +245,7 @@ pub fn analyze(data: &ClipData) -> Analysis {
         };
     }
 
-    let kind = if data.has(HTML) || data.has(RTF) {
-        "rich"
-    } else {
-        "text"
-    };
+    let kind = if data.has_any(RICH) { "rich" } else { "text" };
     Analysis {
         kind,
         preview,
@@ -402,6 +270,15 @@ fn dib_dimensions(dib: &[u8]) -> Option<(u32, u32)> {
     let w = i32::from_le_bytes(dib[4..8].try_into().ok()?);
     let h = i32::from_le_bytes(dib[8..12].try_into().ok()?);
     Some((w.unsigned_abs(), h.unsigned_abs()))
+}
+
+/// Dimensions of any image format the build can decode (TIFF on macOS).
+fn encoded_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
 }
 
 /// Parses a DROPFILES structure into file paths.
@@ -436,6 +313,38 @@ pub fn parse_hdrop(bytes: &[u8]) -> Vec<String> {
         }
     }
     out
+}
+
+/// Parses a newline-separated list of `file://` URLs (macOS and X11) into paths.
+pub fn parse_uri_list(list: &str) -> Vec<String> {
+    list.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| match l.strip_prefix("file://") {
+            // "file://host/path": keep the path; "file:///path" has an empty host.
+            Some(rest) => percent_decode(&rest[rest.find('/').unwrap_or(0)..]),
+            None => l.to_string(),
+        })
+        .collect()
+}
+
+fn percent_decode(s: &str) -> String {
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(hi * 16 + lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]
@@ -488,6 +397,18 @@ mod tests {
     }
 
     #[test]
+    fn utf8_platform_text() {
+        let mac = ClipData {
+            formats: vec![ClipFormat {
+                name: MAC_TEXT.into(),
+                data: "héllo".as_bytes().to_vec(),
+            }],
+        };
+        assert_eq!(mac.text().as_deref(), Some("héllo"));
+        assert_eq!(analyze(&mac).kind, "text");
+    }
+
+    #[test]
     fn hdrop_parsing() {
         let mut bytes = vec![0u8; 20];
         bytes[0] = 20;
@@ -498,5 +419,22 @@ mod tests {
         }
         bytes.extend([0, 0]);
         assert_eq!(parse_hdrop(&bytes), vec!["C:\\a.txt", "D:\\b\\c.png"]);
+    }
+
+    #[test]
+    fn uri_list_parsing() {
+        let list =
+            "# comment\r\nfile:///Users/me/My%20Notes.txt\nfile://host/tmp/a.png\nhttps://x.y/z\n";
+        assert_eq!(
+            parse_uri_list(list),
+            vec!["/Users/me/My Notes.txt", "/tmp/a.png", "https://x.y/z"]
+        );
+        let data = ClipData {
+            formats: vec![ClipFormat {
+                name: X_FILES.into(),
+                data: list.as_bytes().to_vec(),
+            }],
+        };
+        assert_eq!(analyze(&data).kind, "files");
     }
 }

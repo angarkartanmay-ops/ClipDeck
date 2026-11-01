@@ -5,6 +5,7 @@ import { api, inTauri, on, type Item, type Settings, type Status } from "./api";
 import { bytes, escapeHtml } from "./format";
 import { fuzzyScore } from "./fuzzy";
 import { deckArt, hydrateIcons, icons, mark } from "./icons";
+import { comboText, isMac, primary, primaryCombo, setPlatform } from "./keys";
 import { layout, type Box } from "./layout";
 import { closeSettings, openSettings, settingsOpen } from "./settings-view";
 
@@ -300,7 +301,7 @@ function emptyState(): string {
   }
   if (items.length === 0) {
     return `<div class="empty">${deckArt}<h2>Nothing copied yet</h2>
-      <p>Copy text, a screenshot or some files and they appear here. Bring this view back with <kbd class="key">${escapeHtml(settings.hotkeyDashboard)}</kbd>.</p></div>`;
+      <p>Copy text, a screenshot or some files and they appear here. Bring this view back with <kbd class="key">${escapeHtml(comboText(settings.hotkeyDashboard))}</kbd>.</p></div>`;
   }
   if (query) {
     return `<div class="empty">${icons.search}<h2>No matches for “${escapeHtml(query)}”</h2><p>Try fewer letters, or press <kbd class="key">Tab</kbd> to switch filters.</p></div>`;
@@ -490,8 +491,8 @@ function renderChrome(): void {
   const queueBtn = $("queue-toggle");
   queueBtn.classList.toggle("on", status.queueActive);
   queueBtn.title = status.queueActive
-    ? `Paste queue on: ${settings.hotkeyDashboard} pastes the next item. Click to stop.`
-    : `Paste queue (${settings.hotkeyQueue})`;
+    ? `Paste queue on: ${comboText(settings.hotkeyDashboard)} pastes the next item. Click to stop.`
+    : `Paste queue (${comboText(settings.hotkeyQueue)})`;
   $("queue-count").textContent = status.queueActive && status.queue.length ? String(status.queue.length) : "";
 
   const pauseBtn = $("pause-toggle");
@@ -510,22 +511,43 @@ function renderChrome(): void {
   )}</span>`;
 
   const verb = status.canPaste ? "paste" : "copy";
-  hints.innerHTML =
+  const hint = (key: string, what: string) => `<span><kbd class="key">${escapeHtml(key)}</kbd>${what}</span>`;
+  hints.innerHTML = (
     searchMode && query
-      ? `<span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">Alt 1–9</kbd>quick</span><span><kbd class="key">Ctrl P</kbd>pin</span><span><kbd class="key">Esc</kbd>clear</span>`
-      : `<span><kbd class="key">↵</kbd>${verb}</span><span><kbd class="key">Space</kbd>preview</span><span><kbd class="key">1–9</kbd>quick</span><span><kbd class="key">P</kbd>pin</span><span><kbd class="key">Q</kbd>queue</span><span><kbd class="key">Del</kbd>remove</span><span><kbd class="key">Esc</kbd>close</span>`;
+      ? [hint("↵", verb), hint(isMac() ? "⌥1–9" : "Alt 1–9", "quick"), hint(primaryCombo("P"), "pin"), hint("Esc", "clear")]
+      : [
+          hint("↵", verb),
+          hint("Space", "preview"),
+          hint("1–9", "quick"),
+          hint("P", "pin"),
+          hint("Q", "queue"),
+          hint(isMac() ? "⌘⌫" : "Del", "remove"),
+          hint("Esc", "close"),
+        ]
+  ).join("");
 
   renderBanner();
 }
 
+/** Notices dismissed while this dashboard is open. */
+const dismissedNotices = new Set<string>();
+
 function renderBanner(): void {
   let html = "";
+  const notice = status.notices.find((n) => !dismissedNotices.has(n.id));
   if (status.hotkeyErrors.length) {
     html = `${icons.alert}<div><b>Hotkey conflict.</b> ${status.hotkeyErrors.map(escapeHtml).join("; ")}.</div><button class="btn" data-open-settings>Fix</button>`;
+  } else if (notice) {
+    const action = notice.action
+      ? `<button class="btn" data-notice-action="${escapeHtml(notice.action)}">${escapeHtml(notice.actionLabel ?? "Open")}</button>`
+      : "";
+    html = `${icons[notice.id === "policy" ? "shield" : "info"]}<div>${escapeHtml(notice.text)}</div>${action}<button class="tool" type="button" data-dismiss-notice="${escapeHtml(
+      notice.id,
+    )}" aria-label="Dismiss">${icons.close}</button>`;
   } else if (mode === "welcome" && !bannerDismissed) {
-    html = `${icons.keyboard}<div><b>ClipDeck runs in your tray.</b> Copy as usual, then press <kbd class="key">${escapeHtml(
-      settings.hotkeyDashboard,
-    )}</kbd> to pick what to paste. Plain <kbd class="key">Ctrl+V</kbd> is unchanged.</div><button class="btn" data-dismiss>Got it</button>`;
+    html = `${icons.keyboard}<div><b>ClipDeck runs in your ${isMac() ? "menu bar" : "tray"}.</b> Copy as usual, then press <kbd class="key">${escapeHtml(
+      comboText(settings.hotkeyDashboard),
+    )}</kbd> to pick what to paste. Plain <kbd class="key">${primaryCombo("V")}</kbd> is unchanged.</div><button class="btn" data-dismiss>Got it</button>`;
   }
   if (banner.innerHTML !== html) banner.innerHTML = html;
   banner.hidden = !html;
@@ -610,7 +632,7 @@ async function toggleQueue(index: number): Promise<void> {
   await api.toggleQueued(item.id);
   status = await api.getStatus();
   const n = status.queue.indexOf(item.id);
-  toast(n >= 0 ? `Queued #${n + 1}: ${settings.hotkeyDashboard} pastes in order` : "Removed from queue", "queue");
+  toast(n >= 0 ? `Queued #${n + 1}: ${comboText(settings.hotkeyDashboard)} pastes in order` : "Removed from queue", "queue");
   render("none", item.id);
 }
 
@@ -863,10 +885,16 @@ function onKeyDown(e: KeyboardEvent): void {
     }
   }
 
-  // Ctrl+C copies the selected item unless text is selected in the search box.
-  if (e.ctrlKey && e.key.toLowerCase() === "c" && search.selectionStart === search.selectionEnd) {
+  // Ctrl+C (⌘C) copies the selected item unless text is selected in the search box.
+  if (primary(e) && e.key.toLowerCase() === "c" && search.selectionStart === search.selectionEnd) {
     e.preventDefault();
     void copyOnly(selected);
+    return;
+  }
+  // ⌘⌫ removes on macOS, where the Delete key is Backspace.
+  if (isMac() && e.metaKey && e.key === "Backspace" && !query) {
+    e.preventDefault();
+    void remove(selected);
     return;
   }
 
@@ -874,10 +902,10 @@ function onKeyDown(e: KeyboardEvent): void {
     if (e.altKey && /^[1-9]$/.test(e.key)) {
       e.preventDefault();
       void choose(Number(e.key) - 1);
-    } else if (e.ctrlKey && e.key.toLowerCase() === "p") {
+    } else if (primary(e) && e.key.toLowerCase() === "p") {
       e.preventDefault();
       void togglePin(selected);
-    } else if (e.ctrlKey && e.key.toLowerCase() === "q") {
+    } else if (primary(e) && e.key.toLowerCase() === "q") {
       e.preventDefault();
       void toggleQueue(selected);
     } else if (e.shiftKey && e.key === "Delete") {
@@ -1003,6 +1031,11 @@ function wireEvents(): void {
       renderBanner();
     } else if (t.closest("[data-open-settings]")) {
       openSettings(settings, status, onSettingsSaved, "shortcuts");
+    } else if (t.closest("[data-notice-action]")) {
+      void api.openSystemSettings(t.closest<HTMLElement>("[data-notice-action]")!.dataset.noticeAction!);
+    } else if (t.closest("[data-dismiss-notice]")) {
+      dismissedNotices.add(t.closest<HTMLElement>("[data-dismiss-notice]")!.dataset.dismissNotice!);
+      renderBanner();
     }
   });
 
@@ -1019,6 +1052,7 @@ function wireEvents(): void {
   void on("history-changed", () => void loadItems("flip"));
   void on<Status>("status-changed", (s) => {
     status = s;
+    setPlatform(s.platform);
     root.dataset.glass = s.glass ? "on" : "off";
     render("none", view[selected]?.id);
   });
@@ -1064,6 +1098,7 @@ async function reopen(nextMode: string): Promise<void> {
   selected = 0;
   lastPointer = { x: -1, y: -1 };
   [settings, status] = await Promise.all([api.getSettings(), api.getStatus()]);
+  setPlatform(status.platform);
   applyMotion(settings);
   root.dataset.glass = status.glass ? "on" : "off";
   root.dataset.display = display();
@@ -1084,6 +1119,7 @@ async function init(): Promise<void> {
   );
   wireEvents();
   [settings, status] = await Promise.all([api.getSettings(), api.getStatus()]);
+  setPlatform(status.platform);
   applyMotion(settings);
   root.dataset.glass = status.glass ? "on" : "off";
   root.dataset.display = display();

@@ -46,11 +46,22 @@ export interface Settings {
   captureRich: boolean;
   blocklist: string[];
   encrypt: boolean;
+  retentionDays: number;
   clearOnExit: boolean;
   autostart: boolean;
 }
 
+export type Platform = "windows" | "macos" | "linux";
+
+export interface Notice {
+  id: string;
+  text: string;
+  action: string | null;
+  actionLabel: string | null;
+}
+
 export interface Status {
+  platform: Platform;
   paused: boolean;
   queueActive: boolean;
   queue: number[];
@@ -58,8 +69,12 @@ export interface Status {
   itemCount: number;
   diskBytes: number;
   canPaste: boolean;
+  canAutoPaste: boolean;
+  encryptionSupported: boolean;
   glass: boolean;
-  nativeCorners: boolean;
+  /** Settings fixed by the organization's policy. */
+  managed: string[];
+  notices: Notice[];
   version: string;
 }
 
@@ -86,6 +101,7 @@ export const api = {
   ready: () => call<void>("dashboard_ready"),
   close: () => call<void>("close_dashboard"),
   openDataDir: () => call<void>("open_data_dir"),
+  openSystemSettings: (kind: string) => call<void>("open_system_settings", { kind }),
   /** Starts moving the window with the mouse (window mode). */
   startDragging: () => (inTauri ? getCurrentWindow().startDragging() : Promise.resolve()),
 };

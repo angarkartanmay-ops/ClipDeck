@@ -2,7 +2,7 @@
   "name": "clipdeck",
   "private": true,
   "version": "0.1.1",
-  "description": "Lightweight, always-on clipboard manager for Windows",
+  "description": "Lightweight, always-on clipboard manager for Windows, macOS and Linux",
   "author": "Tanmay Angarkar",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

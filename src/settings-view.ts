@@ -3,6 +3,7 @@
 import { api, type Settings, type Status } from "./api";
 import { bytes, escapeHtml } from "./format";
 import { icons, mark } from "./icons";
+import { getPlatform, isMac, keycapParts, metaName, primaryCombo } from "./keys";
 
 const layer = document.getElementById("settings") as HTMLElement;
 const app = document.getElementById("app") as HTMLElement;
@@ -89,63 +90,120 @@ const set = (key: keyof Settings, value: unknown) => {
 
 const hint = (text: string) => (text ? `<small>${text}</small>` : "");
 
+/** Settings fixed by the organization are shown locked. */
+const locked = (key: keyof Settings) => status.managed.includes(key);
+const lockBadge = (key: keyof Settings) =>
+  locked(key) ? `<span class="lock" title="Set by your organization">${icons.lock}Managed</span>` : "";
+
 const toggle = (key: keyof Settings, label: string, help = "") => `
-  <label class="setting">
-    <span class="setting-text"><span>${label}</span>${hint(help)}</span>
-    <input type="checkbox" class="switch" data-key="${key}" ${current[key] ? "checked" : ""}/>
+  <label class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <input type="checkbox" class="switch" data-key="${key}" ${current[key] ? "checked" : ""} ${locked(key) ? "disabled" : ""}/>
   </label>`;
 
-const segmented = (key: keyof Settings, label: string, options: [string, string, string?][], help = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint(help)}</span>
-    <div class="segmented" data-key="${key}" role="radiogroup" aria-label="${label}">
+const segmented = (
+  key: keyof Settings,
+  label: string,
+  options: [string, string, string?][],
+  help = "",
+  numeric = false,
+) => `
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <div class="segmented" data-key="${key}" ${numeric ? 'data-numeric="1"' : ""} role="radiogroup" aria-label="${label}">
       ${options
-        .map(
-          ([v, l, icon]) =>
-            `<button type="button" role="radio" aria-checked="${current[key] === v}" data-value="${v}" class="${current[key] === v ? "active" : ""}">${
-              icon ? icons[icon] : ""
-            }${l}</button>`,
-        )
+        .map(([v, l, icon]) => {
+          const on = String(current[key]) === v;
+          return `<button type="button" role="radio" aria-checked="${on}" data-value="${v}" class="${on ? "active" : ""}" ${
+            locked(key) ? "disabled" : ""
+          }>${icon ? icons[icon] : ""}${l}</button>`;
+        })
         .join("")}
     </div>
   </div>`;
 
-const stepper = (key: keyof Settings, label: string, min: number, max: number, step: number, unit: string, help = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint(help)}</span>
+const stepper = (key: keyof Settings, label: string, min: number, max: number, step: number, unit: string, help = "") => {
+  const off = locked(key) ? "disabled" : "";
+  return `
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
     <span class="stepper" data-key="${key}" data-min="${min}" data-max="${max}" data-step="${step}">
-      <button type="button" data-delta="-1" aria-label="Decrease">−</button>
-      <input type="number" min="${min}" max="${max}" value="${current[key]}" aria-label="${label}"/>
-      <button type="button" data-delta="1" aria-label="Increase">+</button>
+      <button type="button" data-delta="-1" aria-label="Decrease" ${off}>−</button>
+      <input type="number" min="${min}" max="${max}" value="${current[key]}" aria-label="${label}" ${off}/>
+      <button type="button" data-delta="1" aria-label="Increase" ${off}>+</button>
       ${unit ? `<em>${unit}</em>` : ""}
     </span>
   </div>`;
+};
 
 const keycaps = (combo: string) =>
   combo
-    ? combo
-        .split("+")
+    ? keycapParts(combo)
         .map((k) => `<kbd class="key">${escapeHtml(k)}</kbd>`)
-        .join('<span class="plus">+</span>')
+        .join(isMac() ? "" : '<span class="plus">+</span>')
     : `<span>Off</span>`;
 
 const recorder = (key: keyof Settings, label: string, help = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint(help)}</span>
-    <button type="button" class="recorder" data-hotkey="${key}" aria-label="${label}: ${escapeHtml(String(current[key]))}. Click to change">${keycaps(
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <button type="button" class="recorder" data-hotkey="${key}" ${locked(key) ? "disabled" : ""} aria-label="${label}: ${escapeHtml(
       String(current[key]),
-    )}</button>
+    )}. Click to change">${keycaps(String(current[key]))}</button>
   </div>`;
+
+/** Per-platform wording and choices. */
+const AUTOSTART_LABEL = { windows: "Start with Windows", macos: "Open at login", linux: "Start at login" };
+const DEVICE = { windows: "PC", macos: "Mac", linux: "computer" };
+const SLOT_OPTIONS: Record<string, [string, string][]> = {
+  windows: [
+    ["Ctrl+Alt", "Ctrl Alt"],
+    ["Ctrl+Shift", "Ctrl ⇧"],
+    ["Alt+Shift", "Alt ⇧"],
+    ["", "Off"],
+  ],
+  macos: [
+    ["Ctrl+Cmd", "⌃⌘"],
+    ["Ctrl+Alt", "⌃⌥"],
+    ["Alt+Cmd", "⌥⌘"],
+    ["", "Off"],
+  ],
+  linux: [
+    ["Ctrl+Alt", "Ctrl Alt"],
+    ["Super", "Super"],
+    ["", "Off"],
+  ],
+};
+const BLOCKLIST_HINT = {
+  windows: "One program per line, for example keepass.exe.",
+  macos: "One app bundle ID per line, for example com.bitwarden.desktop.",
+  linux: "One program name per line, for example keepassxc.",
+};
+const ENCRYPT_HINT = {
+  windows: "Windows DPAPI: readable only by your account",
+  macos: "Key kept in your login Keychain: readable only by your account",
+  linux: "",
+};
+
+const managedNote = () =>
+  status.managed.length
+    ? `<p class="note managed">${icons.shield}Some settings are managed by your organization and can't be changed here.</p>`
+    : "";
 
 // ---------------------------------------------------------------- pages
 
 function pageHtml(): string {
+  const platform = getPlatform();
   switch (page) {
     case "general":
       return `
-        ${toggle("autostart", "Start with Windows")}
-        ${toggle("pasteOnSelect", "Paste into the previous app", "Off: choosing a clip only copies it")}
-        ${toggle("restoreClipboard", "Restore clipboard after pasting", "Puts back whatever you had copied before")}
+        ${managedNote()}
+        ${toggle("autostart", AUTOSTART_LABEL[platform])}
+        ${
+          platform !== "linux"
+            ? `${toggle("pasteOnSelect", "Paste into the previous app", "Off: choosing a clip only copies it")}
+               ${toggle("restoreClipboard", "Restore clipboard after pasting", "Puts back whatever you had copied before")}`
+            : `<p class="note">On Linux, choosing a clip copies it; press Ctrl+V to paste. Linux doesn't let one app type into another.</p>`
+        }
         ${toggle("keepDashboardWarm", "Keep the deck ready", "Opens instantly, keeps ~120 MB in memory")}`;
     case "display":
       return `
@@ -171,18 +229,27 @@ function pageHtml(): string {
       return `
         ${recorder("hotkeyDashboard", "Open the deck")}
         ${recorder("hotkeyQueue", "Toggle paste queue", "While on, the deck shortcut pastes queued clips in order")}
-        ${segmented("slotModifiers", "Paste slots 1–9", [
-          ["Ctrl+Alt", "Ctrl Alt"],
-          ["Ctrl+Shift", "Ctrl ⇧"],
-          ["Alt+Shift", "Alt ⇧"],
-          ["", "Off"],
-        ])}
+        ${segmented("slotModifiers", "Paste slots 1–9", SLOT_OPTIONS[platform])}
         ${errors}
-        <p class="note">Click a shortcut, then press the new keys. Plain Ctrl+C and Ctrl+V are never touched.</p>`;
+        <p class="note">Click a shortcut, then press the new keys. Plain ${primaryCombo("C")} and ${primaryCombo("V")} are never touched.</p>`;
     }
     case "history":
       return `
+        ${managedNote()}
         ${stepper("historyLimit", "Clips to keep", 10, 200, 10, "", "Pinned clips are extra and never removed")}
+        ${segmented(
+          "retentionDays",
+          "Delete clips after",
+          [
+            ["0", "Never"],
+            ["1", "1 day"],
+            ["7", "7 days"],
+            ["30", "30 days"],
+            ["90", "90 days"],
+          ],
+          "Older unpinned clips are removed automatically",
+          true,
+        )}
         ${stepper("maxDiskMb", "Disk budget", 50, 10000, 50, "MB", `${bytes(status.diskBytes)} in use`)}
         ${stepper("maxItemMb", "Largest clip", 1, 512, 8, "MB")}
         ${toggle("captureImages", "Capture images")}
@@ -190,22 +257,34 @@ function pageHtml(): string {
         ${toggle("captureRich", "Keep rich text formatting")}`;
     case "privacy":
       return `
-        ${toggle("encrypt", "Encrypt history on disk", "Windows DPAPI: readable only by your account")}
+        ${managedNote()}
+        ${
+          status.encryptionSupported
+            ? toggle("encrypt", "Encrypt history on disk", ENCRYPT_HINT[platform])
+            : `<p class="note">Encryption at rest isn't available on Linux yet. Your history folder is readable only by your account.</p>`
+        }
         ${toggle("clearOnExit", "Clear on exit and sign-out", "Pinned clips are kept")}
-        <label class="setting stack">
-          <span class="setting-text"><span>Never capture from</span><small>One app per line. Copies marked private by password managers are always skipped.</small></span>
-          <textarea data-blocklist rows="4" spellcheck="false">${escapeHtml(current.blocklist.join("\n"))}</textarea>
+        <label class="setting stack${locked("blocklist") ? " locked" : ""}">
+          <span class="setting-text"><span>Never capture from${lockBadge("blocklist")}</span><small>${
+            BLOCKLIST_HINT[platform]
+          } Copies marked private by password managers are always skipped.</small></span>
+          <textarea data-blocklist rows="4" spellcheck="false" ${locked("blocklist") ? "readonly" : ""}>${escapeHtml(
+            current.blocklist.join("\n"),
+          )}</textarea>
         </label>
         <div class="button-row">
           <button type="button" class="btn${clearArmed ? " armed" : ""}" data-clear>${icons.trash}${clearArmed ? "Click again to clear" : "Clear history"}</button>
           <button type="button" class="btn" data-open-folder>${icons.folder}Open data folder</button>
         </div>
-        <p class="note">Everything stays on this PC. ClipDeck makes no network connections and has no telemetry.</p>`;
+        <p class="note">Everything stays on this ${DEVICE[platform]}. ClipDeck makes no network connections and has no telemetry.</p>`;
     case "about":
       return `
-        <div class="about-card"><span class="logo">${mark}</span><div><h3>ClipDeck</h3><p>Version ${escapeHtml(status.version)}</p></div></div>
+        <div class="about-card"><span class="logo">${mark}</span><div><h3>ClipDeck</h3><p>Version ${escapeHtml(status.version)} · ${
+          platform === "macos" ? "macOS" : platform === "linux" ? "Linux" : "Windows"
+        }</p></div></div>
         <div class="prose-sm">
           <p>Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. Commercial use needs a separate licence from the author.</p>
+          <p>No network access, no telemetry, no accounts. Your clipboard history never leaves this ${DEVICE[platform]}.</p>
           <p>Copyright © 2026 Tanmay Angarkar. Provided as is, without warranty.</p>
         </div>`;
   }
@@ -234,7 +313,7 @@ function hotkeyFromEvent(e: KeyboardEvent): string | null {
   else if (key === " ") name = "Space";
   else if (["Insert", "Home", "End", "PageUp", "PageDown"].includes(key)) name = key;
   if (!name) return null;
-  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && metaName()].filter(Boolean);
   if (!mods.length) return null;
   return [...mods, name].join("+");
 }
@@ -273,7 +352,8 @@ layer.addEventListener("click", (e) => {
       b.classList.toggle("active", b === seg);
       b.setAttribute("aria-checked", String(b === seg));
     });
-    return set(group.dataset.key as keyof Settings, seg.dataset.value);
+    const value = group.dataset.numeric ? Number(seg.dataset.value) : seg.dataset.value;
+    return set(group.dataset.key as keyof Settings, value);
   }
 
   const delta = t.closest<HTMLButtonElement>("[data-delta]");

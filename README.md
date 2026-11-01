@@ -5,8 +5,8 @@
 <h1 align="center">ClipDeck</h1>
 
 <p align="center">
-  A lightweight, always-on clipboard manager for Windows.<br/>
-  Copy many things, then press <b>Ctrl+Shift+V</b> and pick what to paste.
+  A lightweight, always-on clipboard manager for Windows, macOS and Linux.<br/>
+  Copy many things, then press one shortcut and pick what to paste.
 </p>
 
 <p align="center">
@@ -20,102 +20,137 @@
 ## Why
 
 - Copying something new silently overwrites what you copied before.
-- Windows' built-in history (Win+V) keeps about 25 items, drops items larger
-  than ~4 MB, forgets everything on restart unless pinned, and has no search
-  or paste queue.
+- Built-in clipboard histories are thin. Windows' Win+V keeps about 25 items,
+  drops items larger than ~4 MB and forgets everything on restart unless
+  pinned; older macOS versions have none; Linux desktops vary.
 - Screenshots and images copied from several places are the worst case.
 
 ClipDeck keeps a local history of text, rich text, images and files and gives
-you a fast, keyboard-friendly dashboard to paste any of it.
+you a fast, keyboard-friendly deck to paste any of it.
 
 ## Features
 
 - **Captures everything you copy**: plain text, rich text (HTML/RTF), images
-  (PNG and DIB) and file lists, with the original formats preserved so rich
-  text pastes as rich text and images paste as images.
-- **Floating glass deck** on <kbd>Ctrl+Shift+V</kbd>: a compact 640×420
-  panel with real Windows acrylic that blurs whatever is behind it, tinted
-  with a soft gradient from your accent colour. A keyboard-first list sits
-  beside a live preview (full-size screenshots, code, links, colours, file
-  lists), with fuzzy search, filters, pins, a gliding selection, smooth
-  open/close and hover motion, light and dark themes, and "reduce motion" support.
-- **Pastes into the app you were using**: pick an item and ClipDeck returns
-  focus to the previous window and pastes it for you.
-- **Slot hotkeys**: <kbd>Ctrl+Alt+1</kbd>…<kbd>9</kbd> paste recent items
-  directly, without opening the dashboard.
-- **Paste queue**: <kbd>Ctrl+Shift+Q</kbd> turns queue mode on. Copy several
-  things, then each <kbd>Ctrl+Shift+V</kbd> pastes the next one in order.
-- **Plain Ctrl+C / Ctrl+V are untouched.** ClipDeck only listens for
-  clipboard changes and registers its own hotkeys; it never hooks the keyboard.
-- **Privacy first**: no network access at all, honours the "don't record
-  this" flags used by password managers, per-app blocklist, pause capture,
-  optional DPAPI encryption at rest, optional clear on exit/sign-out.
-  See [PRIVACY.md](PRIVACY.md).
-- **Light**: the background process uses a few MB of memory and no CPU
-  while idle. The dashboard's web view only exists while it is open.
-- Starts with Windows, lives in the system tray, one instance per user.
+  and file lists, with the original formats preserved so rich text pastes as
+  rich text and images paste as images.
+- **Mission Control for your clipboard**: one shortcut lays your recent clips
+  out as cards over a dimmed, blurred view of your screen, or in a window you
+  can move and resize. Monochrome and keyboard-first, with search, filters,
+  pins, Quick Look (<kbd>Space</kbd>) and spring-based motion that honours
+  "reduce motion".
+- **Pastes into the app you were using**: pick a clip and ClipDeck returns
+  focus to the previous app and pastes it (Windows, and macOS once you allow
+  Accessibility). On Linux it copies the clip and you press Ctrl+V.
+- **Paste slots**: paste the latest nine clips directly with a shortcut,
+  without opening the deck.
+- **Paste queue**: turn queue mode on, copy several things, then each press
+  of the deck shortcut pastes the next one in order.
+- **Plain copy and paste are untouched.** ClipDeck listens for clipboard
+  changes and registers its own shortcuts; it never hooks the keyboard.
+- **Private by design**: no network access at all, honours the "don't record
+  this" markers password managers use, per-app blocklist, pause, optional
+  encryption at rest (Windows and macOS), automatic deletion after N days,
+  clear on exit. See [PRIVACY.md](PRIVACY.md).
+- **Fit for company laptops**: installs without administrator rights on every
+  platform, runs fully offline, respects Windows' clipboard-history policy and
+  can be configured by IT through Group Policy, Intune, a macOS configuration
+  profile or a Linux policy file. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+  (use in a business needs a [commercial license](COMMERCIAL-LICENSE.md)).
+- **Light**: the always-on part is a small Rust process that waits for
+  clipboard events; the deck's web view only exists while it is open.
 
 ## Install
 
-Download the latest installer (`.exe` or `.msi`) or the portable `.zip` from
-[Releases](https://github.com/angarkartanmay-ops/ClipDeck/releases). Each
-release lists SHA-256 checksums in `SHA256SUMS.txt`; verify with:
+Download from [Releases](https://github.com/angarkartanmay-ops/ClipDeck/releases).
+Each release lists SHA-256 checksums in `SHA256SUMS.txt`.
 
-```powershell
-Get-FileHash .\ClipDeck_0.1.0_x64-setup.exe -Algorithm SHA256
-```
+**Windows 10 (1809+) or 11, x64 or ARM64**
 
-Requirements: Windows 10 (1809+) or Windows 11, x64, and the Microsoft Edge
-WebView2 Runtime (included with Windows 11; the installer fetches it if missing).
+- `ClipDeck_<version>_x64-setup.exe` (or `_arm64-setup.exe`): installs for
+  your account only, no administrator rights needed.
+- `ClipDeck_<version>_x64_en-US.msi`: installs for all users (administrator),
+  for IT deployment.
+- `ClipDeck_<version>_x64_portable.zip`: no installation; unzip and run.
 
-> **SmartScreen:** early releases are not code-signed, so Windows may show
-> "Windows protected your PC". Choose **More info → Run anyway** if you trust
-> the download and its checksum matches.
+ClipDeck uses the Microsoft Edge WebView2 Runtime (part of Windows 11; the
+installer fetches it if missing).
+
+**macOS 11 or later, Apple silicon or Intel**
+
+Open `ClipDeck_<version>_universal.dmg` and drag ClipDeck to Applications, or
+to the Applications folder in your home folder if you are not an
+administrator. ClipDeck lives in the menu bar. To let it paste for you, allow
+it under **System Settings › Privacy & Security › Accessibility** when it
+asks; until then, choosing a clip copies it and you press ⌘V.
+
+**Linux x86-64 (Ubuntu 22.04+, Debian 12+, Fedora and similar)**
+
+`.deb` and `.rpm` packages, or the `.AppImage`, which runs without
+installing anything. On Wayland, bind `clipdeck --toggle` to a shortcut in
+your desktop's keyboard settings.
+
+> **Unsigned builds:** until a release is code-signed, Windows SmartScreen
+> may say "Windows protected your PC" (choose **More info › Run anyway**) and
+> macOS may block the first launch (choose **Open Anyway** in **System
+> Settings › Privacy & Security**). Check the checksum first.
+> [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) covers these, silent installs and
+> managed settings.
 
 ## Using ClipDeck
 
-| Where | Key | Action |
-| --- | --- | --- |
-| Anywhere | <kbd>Ctrl+Shift+V</kbd> | Open/close the dashboard (or paste next queued item) |
-| Anywhere | <kbd>Ctrl+Alt+1</kbd>…<kbd>9</kbd> | Paste history item 1–9 |
-| Anywhere | <kbd>Ctrl+Shift+Q</kbd> | Toggle paste queue mode |
-| Dashboard | <kbd>↑ ↓ ← →</kbd> | Move |
-| Dashboard | <kbd>Enter</kbd> / click | Paste |
-| Dashboard | <kbd>Shift+Enter</kbd> | Paste as plain text |
-| Dashboard | <kbd>Ctrl+C</kbd> | Copy only (no paste) |
-| Dashboard | <kbd>1</kbd>…<kbd>9</kbd> | Paste item 1–9 in the current view |
-| Dashboard | <kbd>P</kbd> / <kbd>Q</kbd> / <kbd>Del</kbd> | Pin / queue / delete |
-| Dashboard | type, or <kbd>/</kbd> | Search (then use <kbd>Ctrl+P</kbd>, <kbd>Alt+1…9</kbd>, <kbd>Shift+Del</kbd>) |
-| Dashboard | <kbd>Tab</kbd> | Next filter (All, Text, Images, Files, Pinned) |
-| Dashboard | <kbd>Esc</kbd> | Clear search, then close |
+| Shortcut | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Open/close the deck (or paste the next queued clip) | <kbd>Ctrl+Shift+V</kbd> | <kbd>⌃⌘V</kbd> | <kbd>Ctrl+Alt+V</kbd> |
+| Toggle paste queue | <kbd>Ctrl+Shift+Q</kbd> | <kbd>⌃⌘B</kbd> | <kbd>Ctrl+Alt+B</kbd> |
+| Paste clip 1–9 | <kbd>Ctrl+Alt+1</kbd>…<kbd>9</kbd> | <kbd>⌃⌘1</kbd>…<kbd>9</kbd> | off (set in Settings) |
 
-All hotkeys can be changed in Settings (gear icon or tray menu).
+In the deck (⌘ instead of Ctrl on macOS):
 
-History keeps 50 items by default (up to 200) within a 500 MB disk budget;
-the oldest unpinned items are removed first and pinned items are never removed.
+| Key | Action |
+| --- | --- |
+| <kbd>↑ ↓ ← →</kbd>, <kbd>Home</kbd>, <kbd>End</kbd> | Move |
+| <kbd>Enter</kbd> / click | Paste |
+| <kbd>Shift+Enter</kbd> | Paste as plain text |
+| <kbd>Space</kbd> | Quick Look |
+| <kbd>Ctrl+C</kbd> | Copy only (no paste) |
+| <kbd>1</kbd>…<kbd>9</kbd> | Paste clip 1–9 in the current view |
+| <kbd>P</kbd> / <kbd>Q</kbd> / <kbd>Del</kbd> (macOS <kbd>⌘⌫</kbd>) | Pin / queue / delete |
+| type, or <kbd>/</kbd> | Search (then <kbd>Ctrl+P</kbd>, <kbd>Alt+1…9</kbd>, <kbd>Shift+Del</kbd>) |
+| <kbd>Tab</kbd> | Next filter (All, Text, Images, Files, Pinned) |
+| <kbd>Esc</kbd> | Clear search, then close |
+
+All shortcuts can be changed in Settings (gear icon, or the tray/menu-bar
+menu). History keeps 50 clips by default (up to 200) within a 500 MB disk
+budget; the oldest unpinned clips go first and pinned clips are kept.
 
 ### Known limitations
 
-- **Elevated windows:** Windows does not let a normal app send keystrokes to
-  an app running as administrator. Pasting into an elevated window fails
-  unless ClipDeck is also started as administrator; the item is still placed
-  on the clipboard, so <kbd>Ctrl+V</kbd> works manually.
+- **Windows, elevated windows:** Windows does not let a normal app type into
+  an app running as administrator. The clip is still put on the clipboard, so
+  <kbd>Ctrl+V</kbd> works.
+- **macOS:** pasting for you needs the Accessibility permission; newer macOS
+  versions may also ask before ClipDeck can read the clipboard in the
+  background (**Privacy & Security › Paste from Other Apps**). ClipDeck shows
+  a notice with a button for each.
+- **Linux:** choosing a clip copies it (no automatic paste), Wayland needs a
+  desktop shortcut for `clipdeck --toggle`, the deck has a solid background
+  instead of blur, and encryption at rest is not available.
 - Apps that delay-render huge clipboard data (for example very large Excel
   ranges) can make a capture take a moment; ClipDeck reads it in the
-  background and skips items larger than the "Largest item" setting.
-- Windows only for now. The core is split so a macOS/Linux port is possible later.
+  background and skips clips larger than the "Largest clip" setting.
 
 ## Building from source
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain. In short:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for each platform's toolchain. In short:
 
 ```bash
 npm install
 npm run tauri build
 ```
 
-Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-the manual test plan in [docs/TESTING.md](docs/TESTING.md).
+Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the
+manual test plan in [docs/TESTING.md](docs/TESTING.md) and the IT guide in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 
@@ -142,8 +177,8 @@ from its use.
 
 A clipboard history can contain **sensitive data** such as passwords,
 personal messages or financial details that you copied. ClipDeck stores it
-on your PC so you can paste it later. Review [PRIVACY.md](PRIVACY.md), use
+on your device so you can paste it later. Review [PRIVACY.md](PRIVACY.md), use
 the blocklist, pause and encryption options, and clear the history before
-sharing your Windows account.
+sharing your user account.
 
 Copyright © 2026 Tanmay Angarkar.

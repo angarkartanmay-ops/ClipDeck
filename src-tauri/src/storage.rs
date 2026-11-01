@@ -10,7 +10,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::clip::ClipData;
-use crate::crypto;
+use crate::platform;
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -52,7 +52,7 @@ fn db_err(e: rusqlite::Error) -> String {
 
 fn seal(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>> {
     if encrypt {
-        crypto::protect(bytes)
+        platform::protect(bytes)
     } else {
         Ok(bytes.to_vec())
     }
@@ -60,7 +60,7 @@ fn seal(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>> {
 
 fn open_sealed(bytes: Vec<u8>, encrypted: bool) -> Result<Vec<u8>> {
     if encrypted {
-        crypto::unprotect(&bytes)
+        platform::unprotect(&bytes)
     } else {
         Ok(bytes)
     }
@@ -387,6 +387,28 @@ impl Store {
         Ok(removed)
     }
 
+    /// Deletes clips created before `cutoff` (ms since the epoch). Pinned
+    /// clips are kept unless `include_pinned` (retention set by policy).
+    pub fn delete_older_than(&self, cutoff: i64, include_pinned: bool) -> Result<Vec<i64>> {
+        let ids: Vec<i64> = {
+            let conn = self.conn.lock().unwrap();
+            let sql = if include_pinned {
+                "SELECT id FROM items WHERE created_at < ?1"
+            } else {
+                "SELECT id FROM items WHERE created_at < ?1 AND pinned = 0"
+            };
+            let mut stmt = conn.prepare(sql).map_err(db_err)?;
+            let ids = stmt
+                .query_map(params![cutoff], |r| r.get(0))
+                .map_err(db_err)?;
+            ids.collect::<std::result::Result<_, _>>().map_err(db_err)?
+        };
+        for id in &ids {
+            self.delete(*id)?;
+        }
+        Ok(ids)
+    }
+
     pub fn stats(&self) -> (i64, i64) {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
@@ -510,7 +532,27 @@ mod tests {
     }
 
     #[test]
+    fn retention_deletes_old_unpinned() {
+        let (store, dir) = temp_store("retention");
+        let old_pinned = add(&store, "old pinned", 10, true, false);
+        add(&store, "old", 20, false, false);
+        let fresh = add(&store, "fresh", 1_000, false, false);
+        assert_eq!(store.delete_older_than(500, false).unwrap().len(), 1);
+        assert_eq!(store.ids().unwrap(), vec![fresh, old_pinned]);
+        assert_eq!(
+            store.delete_older_than(500, true).unwrap(),
+            vec![old_pinned]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn encryption_roundtrip() {
+        // On macOS this would create an item in the real login Keychain; the
+        // cipher has its own test in platform/macos/crypto.rs.
+        if !crate::platform::encryption_supported() || cfg!(target_os = "macos") {
+            return;
+        }
         let (store, dir) = temp_store("crypto");
         let id = add(&store, "secret", 1, false, true);
         let raw = std::fs::read(store.blob_path(id)).unwrap();

@@ -102,6 +102,7 @@ fn capture(
         .store
         .enforce_limits(settings.history_limit, settings.max_disk_bytes())?;
     state.forget_items(&removed);
+    state.enforce_retention();
 
     actions::emit_history(app);
     actions::emit_status(app);

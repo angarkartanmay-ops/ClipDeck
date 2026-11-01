@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0. -->
+<!--
+  Example configuration profile for ClipDeck, to edit and deploy with your
+  MDM (Jamf Pro, Intune, Kandji, Mosyle...). See docs/DEPLOYMENT.md.
+
+  1. Settings: every key in the first payload is enforced and shown locked
+     in ClipDeck. Delete the keys you want users to choose themselves.
+  2. Accessibility: lets ClipDeck paste the chosen clip into the previous
+     app. Only works for a Developer ID-signed ClipDeck: replace TEAMID with
+     the Team ID printed by
+       codesign -dv /Applications/ClipDeck.app 2>&1 | grep TeamIdentifier
+     macOS only honours this payload when it comes from an MDM.
+  3. Login item: keeps "Open at Login" approved without a notification.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key>
+      <string>com.tanmayangarkar.clipdeck</string>
+      <key>PayloadIdentifier</key>
+      <string>com.tanmayangarkar.clipdeck.profile.settings</string>
+      <key>PayloadUUID</key>
+      <string>88946A1D-580A-46E3-9B60-9A44CFCA8161</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadDisplayName</key>
+      <string>ClipDeck settings</string>
+
+      <key>encrypt</key>
+      <true/>
+      <key>retentionDays</key>
+      <integer>30</integer>
+      <key>blocklist</key>
+      <array>
+        <string>com.1password.1password</string>
+        <string>com.bitwarden.desktop</string>
+        <string>com.apple.passwords</string>
+        <string>com.apple.keychainaccess</string>
+        <string>org.keepassxc.keepassxc</string>
+      </array>
+    </dict>
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.TCC.configuration-profile-policy</string>
+      <key>PayloadIdentifier</key>
+      <string>com.tanmayangarkar.clipdeck.profile.privacy</string>
+      <key>PayloadUUID</key>
+      <string>4977B530-5477-4E90-BC06-5680D59D2AF8</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadDisplayName</key>
+      <string>ClipDeck paste permission</string>
+      <key>Services</key>
+      <dict>
+        <key>Accessibility</key>
+        <array>
+          <dict>
+            <key>Identifier</key>
+            <string>com.tanmayangarkar.clipdeck</string>
+            <key>IdentifierType</key>
+            <string>bundleID</string>
+            <key>CodeRequirement</key>
+            <string>identifier "com.tanmayangarkar.clipdeck" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TEAMID</string>
+            <key>Authorization</key>
+            <string>Allow</string>
+            <key>Comment</key>
+            <string>Paste the chosen clip into the app the user was working in</string>
+          </dict>
+        </array>
+        <key>PostEvent</key>
+        <array>
+          <dict>
+            <key>Identifier</key>
+            <string>com.tanmayangarkar.clipdeck</string>
+            <key>IdentifierType</key>
+            <string>bundleID</string>
+            <key>CodeRequirement</key>
+            <string>identifier "com.tanmayangarkar.clipdeck" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = TEAMID</string>
+            <key>Authorization</key>
+            <string>Allow</string>
+            <key>Comment</key>
+            <string>Press Command-V in the previous app</string>
+          </dict>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.servicemanagement</string>
+      <key>PayloadIdentifier</key>
+      <string>com.tanmayangarkar.clipdeck.profile.loginitem</string>
+      <key>PayloadUUID</key>
+      <string>9F06A12B-B3F3-4AA2-A3D6-D1C81C84396A</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadDisplayName</key>
+      <string>ClipDeck login item</string>
+      <key>Rules</key>
+      <array>
+        <dict>
+          <key>RuleType</key>
+          <string>Label</string>
+          <key>RuleValue</key>
+          <string>com.tanmayangarkar.clipdeck</string>
+          <key>Comment</key>
+          <string>ClipDeck's Open at Login agent</string>
+        </dict>
+      </array>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key>
+  <string>ClipDeck</string>
+  <key>PayloadDescription</key>
+  <string>Settings and permissions for the ClipDeck clipboard manager.</string>
+  <key>PayloadIdentifier</key>
+  <string>com.tanmayangarkar.clipdeck.profile</string>
+  <key>PayloadOrganization</key>
+  <string>Your organization</string>
+  <key>PayloadScope</key>
+  <string>System</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>5F3DB9E8-EB26-44D7-A1B4-FC0E86091908</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>

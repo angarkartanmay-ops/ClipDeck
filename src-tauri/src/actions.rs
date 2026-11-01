@@ -9,17 +9,31 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::settings::Settings;
 use crate::state::AppState;
 use crate::tray::{TrayItems, TRAY_ID};
-use crate::{autostart, dashboard, paste};
+use crate::{dashboard, platform};
 
 fn state(app: &AppHandle) -> Arc<AppState> {
     app.state::<Arc<AppState>>().inner().clone()
 }
 
+/// A message for the dashboard banner (a missing permission, a policy).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    pub id: String,
+    pub text: String,
+    /// Passed to `open_system_settings` by the banner's button.
+    pub action: Option<String>,
+    pub action_label: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// "windows", "macos" or "linux".
+    pub platform: &'static str,
     pub paused: bool,
     pub queue_active: bool,
     pub queue: Vec<i64>,
@@ -28,10 +42,14 @@ pub struct Status {
     pub disk_bytes: i64,
     /// Whether choosing an item will paste into a window (vs. only copy).
     pub can_paste: bool,
-    /// The dashboard window has a native acrylic (blurred) backdrop.
+    /// Whether this platform can paste into other apps at all.
+    pub can_auto_paste: bool,
+    pub encryption_supported: bool,
+    /// The dashboard window has a native blurred backdrop.
     pub glass: bool,
-    /// Windows draws the dashboard's rounded corners and shadow.
-    pub native_corners: bool,
+    /// Settings fixed by the administrator.
+    pub managed: Vec<String>,
+    pub notices: Vec<Notice>,
     pub version: String,
 }
 
@@ -44,16 +62,32 @@ pub fn status(app: &AppHandle) -> Status {
     let (item_count, disk_bytes) = state.store.stats();
     let hotkey_errors = state.hotkey_errors.lock().unwrap().clone();
     let has_target = state.target.lock().unwrap().is_some();
+    let mut notices: Vec<Notice> = state
+        .policy
+        .notice
+        .iter()
+        .map(|text| Notice {
+            id: "policy".into(),
+            text: text.clone(),
+            action: None,
+            action_label: None,
+        })
+        .collect();
+    notices.extend(platform::notices());
     let status = Status {
+        platform: platform::NAME,
         paused: state.paused.load(Ordering::Relaxed),
         queue_active,
         queue,
         hotkey_errors,
         item_count,
         disk_bytes,
-        can_paste: state.settings().paste_on_select && has_target,
-        glass: dashboard::glass_supported(),
-        native_corners: dashboard::native_corners(),
+        can_paste: state.settings().paste_on_select && has_target && platform::can_auto_paste(),
+        can_auto_paste: platform::can_auto_paste(),
+        encryption_supported: platform::encryption_supported(),
+        glass: platform::window::glass_supported(),
+        managed: state.policy.managed_keys(),
+        notices,
         version: app.package_info().version.to_string(),
     };
     status
@@ -127,13 +161,12 @@ pub fn toggle_autostart(app: &AppHandle) {
 }
 
 pub fn open_data_dir(app: &AppHandle) {
-    let dir = state(app).data_dir.clone();
-    let _ = std::process::Command::new("explorer.exe").arg(dir).spawn();
+    platform::open_path(&state(app).data_dir);
 }
 
 /// Dashboard hotkey: pastes the next queued item while the queue has
 /// items, otherwise opens/closes the dashboard.
-pub fn dashboard_hotkey(app: &AppHandle, target: Option<isize>) {
+pub fn dashboard_hotkey(app: &AppHandle, target: Option<i64>) {
     let state = state(app);
     let next = {
         let mut queue = state.queue.lock().unwrap();
@@ -158,8 +191,9 @@ pub fn dashboard_hotkey(app: &AppHandle, target: Option<isize>) {
     }
 }
 
-/// Ctrl+Alt+N: pastes the N-th most recent item without opening the UI.
-pub fn paste_slot(app: &AppHandle, slot: usize, target: Option<isize>) {
+/// Slot hotkey (e.g. Ctrl+Alt+N): pastes the N-th most recent item without
+/// opening the UI.
+pub fn paste_slot(app: &AppHandle, slot: usize, target: Option<i64>) {
     let ids = state(app).store.ids().unwrap_or_default();
     if let (Some(id), Some(_)) = (ids.get(slot - 1), target) {
         if let Err(err) = paste_item(app, *id, false, target, false) {
@@ -168,13 +202,14 @@ pub fn paste_slot(app: &AppHandle, slot: usize, target: Option<isize>) {
     }
 }
 
-/// Puts an item on the clipboard and, when there is a target window and
-/// pasting is enabled, pastes it there. Blocks; call off the main thread.
+/// Puts an item on the clipboard and, when there is a target app and
+/// pasting is enabled and possible, pastes it there. Blocks; call off the
+/// main thread.
 pub fn paste_item(
     app: &AppHandle,
     id: i64,
     plain: bool,
-    target: Option<isize>,
+    target: Option<i64>,
     from_dashboard: bool,
 ) -> Result<(), String> {
     let state = state(app);
@@ -185,37 +220,37 @@ pub fn paste_item(
             data = text;
         }
     }
-    let target = target.filter(|_| settings.paste_on_select);
+    let target = target.filter(|_| settings.paste_on_select && platform::can_auto_paste());
     let previous = match target {
-        Some(_) if settings.restore_clipboard => paste::snapshot_clipboard(),
+        Some(_) if settings.restore_clipboard => platform::snapshot_clipboard(),
         _ => None,
     };
-    paste::set_clipboard(&data)?;
+    platform::set_clipboard(&data)?;
     drop(data);
 
     if from_dashboard {
         dashboard::close(app);
     }
     if let Some(target) = target {
-        if paste::focus(target) {
-            paste::send_ctrl_v();
-        }
-        if let Some(previous) = previous {
+        let pasted = platform::paste_into(app, target);
+        if let (true, Some(previous)) = (pasted, previous) {
             // Give the target app time to read the clipboard first.
             std::thread::sleep(Duration::from_millis(500));
-            paste::set_clipboard(&previous)?;
+            platform::set_clipboard(&previous)?;
+        }
+        if !pasted {
+            // Still on the clipboard; tell the dashboard why it only copied.
+            emit_status(app);
         }
     }
     Ok(())
 }
 
 /// Validates, saves and applies new settings. Returns what was stored.
-pub fn apply_settings(
-    app: &AppHandle,
-    new: crate::settings::Settings,
-) -> Result<crate::settings::Settings, String> {
+pub fn apply_settings(app: &AppHandle, new: Settings) -> Result<Settings, String> {
     let state = state(app);
-    let mut new = new.sanitized();
+    // The administrator's values always win over the user's.
+    let mut new = state.policy.apply(new.sanitized());
     let old = state.settings();
     // Window bounds are owned by the core (saved when the window closes);
     // the page's copy may be stale.
@@ -234,11 +269,11 @@ pub fn apply_settings(
         || new.hotkey_queue != old.hotkey_queue
         || new.slot_modifiers != old.slot_modifiers
     {
-        crate::core_window::reload_hotkeys();
+        platform::reload_hotkeys(app);
     }
     if new.autostart != old.autostart {
         if !cfg!(debug_assertions) {
-            autostart::set(new.autostart)?;
+            platform::set_autostart(new.autostart)?;
         }
         if let Some(items) = app.try_state::<TrayItems>() {
             let _ = items.autostart.set_checked(new.autostart);
@@ -260,6 +295,9 @@ pub fn apply_settings(
             .store
             .enforce_limits(new.history_limit, new.max_disk_bytes())?;
         state.forget_items(&removed);
+        emit_history(app);
+    }
+    if new.retention_days != old.retention_days && !state.enforce_retention().is_empty() {
         emit_history(app);
     }
     if !new.keep_dashboard_warm && old.keep_dashboard_warm {

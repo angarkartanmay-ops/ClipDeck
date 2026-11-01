@@ -22,33 +22,43 @@ In addition, sign off each commit (Developer Certificate of Origin) with
 
 ## Development setup
 
-Requirements: Windows 10/11, [Rust](https://rustup.rs) (stable, MSVC
-toolchain), Visual Studio Build Tools with the "Desktop development with
-C++" workload, Node.js 20+, and the WebView2 runtime (preinstalled on
-Windows 11).
+All platforms need [Rust](https://rustup.rs) (stable) and Node.js 20+. Then:
+
+- **Windows 10/11:** Visual Studio Build Tools with the "Desktop development
+  with C++" workload (MSVC toolchain), and the WebView2 runtime
+  (preinstalled on Windows 11).
+- **macOS 11+:** Xcode Command Line Tools (`xcode-select --install`).
+- **Linux (Debian/Ubuntu 22.04+):**
+  `sudo apt install build-essential curl wget file libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
 
 ```bash
 npm install
 npm run tauri dev        # run with hot-reloading UI
-npm run tauri build      # release installers in src-tauri/target/release/bundle
+npm run tauri build      # release bundles in src-tauri/target/release/bundle
 ```
 
 `npm run dev` alone serves the dashboard in a normal browser with sample
-data, which is handy for UI work.
+data, which is handy for UI work. Add `?platform=macos`, `?platform=linux` or
+`?managed=1` to the URL to preview other platforms and policy locks.
 
 Tests and checks:
 
 ```bash
-cd src-tauri && cargo test && cargo clippy --all-targets
+cd src-tauri && cargo test && cargo clippy --all-targets -- -D warnings
 npx tsc --noEmit
 cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources
 npm run licenses
 ```
 
+CI runs clippy and the tests on all three platforms, so a change made on one
+OS is checked on the others before it is merged. Platform-specific code lives
+in `src-tauri/src/platform/<os>/`; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Guidelines
 
 - Keep the background core small: no new long-lived threads, timers or
-  polling, and no payloads kept in RAM.
+  polling (the macOS pasteboard check is the one exception, as macOS has no
+  change notification), and no payloads kept in RAM.
 - Never add network access, telemetry or remote content.
 - New dependencies must be MIT, Apache-2.0, BSD, ISC, Zlib or similarly
   permissive (enforced by `deny.toml` and `npm run licenses`); fonts may be

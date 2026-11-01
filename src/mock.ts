@@ -3,7 +3,13 @@
 // Sample data so the dashboard can be designed in a plain browser
 // (`npm run dev`) without the Rust core. Never used inside the app.
 
-import type { Item, Settings, Status } from "./api";
+import type { Item, Platform, Settings, Status } from "./api";
+
+// Preview another OS with ?platform=macos or ?platform=linux, and IT
+// policy with ?managed=1.
+const params = new URLSearchParams(location.search);
+const platform = (params.get("platform") as Platform) ?? "windows";
+const managed = params.has("managed");
 
 const now = Date.now();
 const min = 60_000;
@@ -44,14 +50,35 @@ let items: Item[] = [
 
 let settings: Settings = {
   historyLimit: 50, maxDiskMb: 500, maxItemMb: 64,
-  hotkeyDashboard: "Ctrl+Shift+V", hotkeyQueue: "Ctrl+Shift+Q", slotModifiers: "Ctrl+Alt",
+  hotkeyDashboard: platform === "macos" ? "Ctrl+Cmd+V" : platform === "linux" ? "Ctrl+Alt+V" : "Ctrl+Shift+V",
+  hotkeyQueue: platform === "macos" ? "Ctrl+Cmd+B" : platform === "linux" ? "Ctrl+Alt+B" : "Ctrl+Shift+Q",
+  slotModifiers: platform === "macos" ? "Ctrl+Cmd" : platform === "linux" ? "" : "Ctrl+Alt",
   pasteOnSelect: true, restoreClipboard: false, displayMode: "fullscreen", windowBounds: null, keepDashboardWarm: false,
   reduceMotion: "system",
   captureImages: true, captureFiles: true, captureRich: true,
-  blocklist: ["1password.exe", "bitwarden.exe", "keepass.exe"], encrypt: false, clearOnExit: false, autostart: true,
+  blocklist: ["1password.exe", "bitwarden.exe", "keepass.exe"], encrypt: managed, retentionDays: managed ? 7 : 0, clearOnExit: false, autostart: true,
 };
 
-const status: Status = { paused: false, queueActive: false, queue: [], hotkeyErrors: [], itemCount: 9, diskBytes: 2_500_000, canPaste: true, glass: true, nativeCorners: true, version: "0.1.0-dev" };
+const status: Status = {
+  platform,
+  paused: false,
+  queueActive: false,
+  queue: [],
+  hotkeyErrors: [],
+  itemCount: 14,
+  diskBytes: 6_400_000,
+  canPaste: platform !== "linux",
+  canAutoPaste: platform !== "linux",
+  encryptionSupported: platform !== "linux",
+  glass: platform !== "linux",
+  managed: managed ? ["encrypt", "retentionDays", "captureFiles"] : [],
+  notices: managed
+    ? [{ id: "policy", text: "Some settings are managed by your organization.", action: null, actionLabel: null }]
+    : platform === "macos"
+      ? [{ id: "accessibility", text: "To paste straight into apps, allow ClipDeck under Privacy & Security › Accessibility. Until then, choosing a clip copies it and you press ⌘V.", action: "accessibility", actionLabel: "Allow" }]
+      : [],
+  version: "0.1.1-dev",
+};
 
 export async function mockApi<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const id = args.id as number;

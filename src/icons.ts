@@ -35,6 +35,7 @@ export const icons: Record<string, string> = {
   display: svg('<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.2"/><path d="M9 19.5h6M12 16v3.5"/>'),
   keyboard: svg('<rect x="3" y="6" width="18" height="12" rx="2.6"/><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8 14h8"/>'),
   history: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"/><path d="M4.5 4.5V9H9M12 8v4.2l2.8 1.8"/>'),
+  lock: svg('<rect x="5.5" y="10.5" width="13" height="9.5" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'),
   shield: svg('<path d="M12 3.5 19 6v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/>'),
   palette: svg('<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1 0 1.6-.8 1.6-1.6 0-1.4-1.1-1.6-1.1-2.6 0-.8.6-1.3 1.4-1.3h2a4.6 4.6 0 0 0 4.6-4.6c0-3.8-3.8-6.9-8.5-6.9z"/><circle cx="7.8" cy="11" r="1"/><circle cx="10.5" cy="7.6" r="1"/><circle cx="15" cy="8.2" r="1"/>'),
   info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>'),
