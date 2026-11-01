@@ -224,9 +224,12 @@ jobs:
               cp "$root"/bundle/deb/*.deb "$root"/bundle/rpm/*.rpm "$root"/bundle/appimage/*.AppImage "$out"/
               ;;
           esac
-          cd "$out" && for f in *; do
+          cd "$out"
+          # Hash first, then write the list, so it never lists itself.
+          sums=$(for f in *; do
             if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi
-          done | tee "SHA256SUMS-${{ matrix.name }}.txt"
+          done)
+          echo "$sums" | tee "SHA256SUMS-${{ matrix.name }}.txt"
 
       - uses: actions/upload-artifact@v4
         with:
