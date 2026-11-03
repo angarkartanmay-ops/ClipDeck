@@ -48,6 +48,9 @@ let items: Item[] = [
   { id: 1, kind: "text", createdAt: now - 9 * 24 * 60 * min, sourceApp: "Windows Terminal", sourceExe: "windowsterminal.exe", pinned: false, size: 40, text: "npm run tauri build", meta: { chars: 19, lines: 1 }, hasThumb: false },
 ];
 
+// ?empty=1 previews the empty state.
+if (params.has("empty")) items = [];
+
 let settings: Settings = {
   historyLimit: 50, maxDiskMb: 500, maxItemMb: 64,
   hotkeyDashboard: platform === "macos" ? "Ctrl+Cmd+V" : platform === "linux" ? "Ctrl+Alt+V" : "Ctrl+Shift+V",

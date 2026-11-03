@@ -40,6 +40,8 @@ const toastEl = $("toast");
 
 let items: Item[] = [];
 let view: Item[] = [];
+/** Markup of the empty state currently on screen, to avoid rebuilding it. */
+let shownEmpty: string | null = null;
 let boxes: Box[] = [];
 let settings: Settings;
 let status: Status;
@@ -360,7 +362,18 @@ function render(animate: "bubble" | "flip" | "none" = "none", keepId?: number): 
   field.style.width = `${width}px`;
   field.style.height = `${Math.max(result.height + g.top * 2 + offsetY, stage.clientHeight - 1)}px`;
 
-  field.innerHTML = view.length ? view.map((it, i) => tile(it, i, boxes[i], g.labelH)).join("") : emptyState();
+  if (view.length) {
+    shownEmpty = null;
+    field.innerHTML = view.map((it, i) => tile(it, i, boxes[i], g.labelH)).join("");
+  } else {
+    // Rebuilding an unchanged empty state would restart its entrance and the
+    // looping icon every time a status or resize event re-renders.
+    const html = emptyState();
+    if (shownEmpty !== html || !field.querySelector(".empty")) {
+      field.innerHTML = html;
+      shownEmpty = html;
+    }
+  }
   loadImages(field);
   if (animate === "bubble") bubbleIn();
   if (before) flip(before);
@@ -587,7 +600,11 @@ async function choose(index: number, plain = false): Promise<void> {
   slotEl(index)?.classList.add("chosen");
   leave();
   await wait(150);
-  await api.paste(item.id, plain);
+  try {
+    await api.paste(item.id, plain);
+  } catch (err) {
+    return recover(`Couldn't paste: ${err}`);
+  }
   if (!inTauri) {
     toast(status.canPaste ? "Pasted into your app" : "Copied to clipboard");
     resetAfterMockClose();
@@ -601,11 +618,24 @@ async function copyOnly(index: number): Promise<void> {
   slotEl(index)?.classList.add("chosen");
   leave();
   await wait(150);
-  await api.copy(item.id);
+  try {
+    await api.copy(item.id);
+  } catch (err) {
+    return recover(`Couldn't copy: ${err}`);
+  }
   if (!inTauri) {
     toast("Copied to clipboard", "copy");
     resetAfterMockClose();
   }
+}
+
+/** A paste or copy failed: without this the deck stays faded and unusable. */
+function recover(message: string): void {
+  closing = false;
+  app.classList.remove("leaving");
+  field.classList.remove("leaving");
+  field.querySelector(".chosen")?.classList.remove("chosen");
+  toast(message, "alert");
 }
 
 /** The browser preview has no window to close; bring the deck back. */
@@ -983,7 +1013,8 @@ function wireEvents(): void {
     const el = t.closest<HTMLElement>(".slot");
     if (el) return void choose(Number(el.dataset.index), e.shiftKey);
     // Clicking empty space dismisses the overlay, like Mission Control.
-    if (display() === "fullscreen" && !t.closest(".empty")) close();
+    // (The empty state fills the stage, so only its own content is exempt.)
+    if (display() === "fullscreen" && !t.closest(".empty > *")) close();
   });
   stage.addEventListener("contextmenu", (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>(".slot");
@@ -1040,9 +1071,14 @@ function wireEvents(): void {
   });
 
   let resizeFrame = 0;
+  let lastSize = "";
   new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
+      // Only a real size change needs a new layout.
+      const size = `${stage.clientWidth}x${stage.clientHeight}`;
+      if (size === lastSize) return;
+      lastSize = size;
       if (settings && !field.classList.contains("leaving")) render("none", view[selected]?.id);
     });
   }).observe(stage);
@@ -1054,7 +1090,9 @@ function wireEvents(): void {
     status = s;
     setPlatform(s.platform);
     root.dataset.glass = s.glass ? "on" : "off";
-    render("none", view[selected]?.id);
+    // Tiles don't depend on status; rebuilding them on every capture or
+    // pause toggle only reloads thumbnails and drops hover.
+    renderChrome();
   });
   void on<Settings>("settings-changed", (s) => {
     settings = s;
@@ -1096,6 +1134,7 @@ async function reopen(nextMode: string): Promise<void> {
   query = "";
   search.value = "";
   selected = 0;
+  shownEmpty = null; // let the empty state play its entrance again
   lastPointer = { x: -1, y: -1 };
   [settings, status] = await Promise.all([api.getSettings(), api.getStatus()]);
   setPlatform(status.platform);

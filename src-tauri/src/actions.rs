@@ -104,7 +104,15 @@ pub fn emit_status(app: &AppHandle) {
         let _ = items.queue.set_checked(status.queue_active);
     }
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let mut tip = format!("ClipDeck — {} items", status.item_count);
+        let mut tip = format!(
+            "ClipDeck — {} {}",
+            status.item_count,
+            if status.item_count == 1 {
+                "item"
+            } else {
+                "items"
+            }
+        );
         if status.paused {
             tip.push_str(" (capture paused)");
         }
