@@ -15,11 +15,19 @@ echo   Uninstall ClipDeck
 echo   ------------------
 echo.
 
+rem Always close ClipDeck first: a running clipdeck.exe cannot be deleted.
+taskkill /IM clipdeck.exe /F >nul 2>&1
+timeout /t 1 /nobreak >nul
+
 set "VER="
 for /f "tokens=2,*" %%A in ('reg query "%UNKEY%" /v DisplayVersion 2^>nul ^| find "DisplayVersion"') do set "VER=%%B"
 
 if not defined VER if not exist "%UNINST%" (
-  echo   ClipDeck does not seem to be installed for this account.
+  echo   No uninstaller found for this account.
+  if exist "%APPDIR%\clipdeck.exe" (
+    echo   Removing the leftover files in %APPDIR%...
+    rmdir /S /Q "%APPDIR%" >nul 2>&1
+  )
   goto cleanup
 )
 
@@ -30,16 +38,14 @@ if defined VER (
 )
 
 echo.
-echo   [1/3] Closing ClipDeck...
-taskkill /IM clipdeck.exe /F >nul 2>&1
-timeout /t 1 /nobreak >nul
+echo   [1/3] ClipDeck is closed.
 
 echo   [2/3] Running the ClipDeck uninstaller...
 if exist "%UNINST%" (
   rem "_?=" makes the NSIS uninstaller run in place and wait until it is done.
   "%UNINST%" /S _?=%APPDIR%
   del /F /Q "%UNINST%" >nul 2>&1
-  rmdir "%APPDIR%" >nul 2>&1
+  rmdir /S /Q "%APPDIR%" >nul 2>&1
 ) else (
   echo         No uninstaller found; removing the leftover entry only.
   reg delete "%UNKEY%" /f >nul 2>&1
