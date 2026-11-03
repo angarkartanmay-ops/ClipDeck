@@ -1,0 +1,6 @@
+{
+  "retentionDays": 30,
+  "captureFiles": false,
+  "clearOnExit": true,
+  "blocklist": ["keepassxc", "bitwarden", "1password", "enpass", "seahorse"]
+}

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0. -->
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>ClipDeck</displayName>
+  <description>Settings for the ClipDeck clipboard manager.</description>
+  <resources>
+    <stringTable>
+      <string id="SUPPORTED_ClipDeck">ClipDeck 0.1.1 or later</string>
+      <string id="ClipDeck">ClipDeck</string>
+      <string id="Capture">Capture</string>
+      <string id="History">History and storage</string>
+      <string id="Behavior">Behavior</string>
+
+      <string id="DisableCapture">Turn off clipboard capture</string>
+      <string id="DisableCapture_Help">If you enable this setting, ClipDeck records nothing on this device. Clips saved earlier stay available until they expire or the user deletes them; combine with "Delete clips after a number of days" to remove them.
+
+If you disable or do not configure this setting, ClipDeck records new copies as usual.</string>
+
+      <string id="AllowWhenSystemHistoryDisabled">Keep recording when Windows clipboard history is turned off</string>
+      <string id="AllowWhenSystemHistoryDisabled_Help">ClipDeck follows the Windows policy "Allow Clipboard History" (System > OS Policies): when that policy turns clipboard history off, ClipDeck stops recording and tells the user why.
+
+If you enable this setting, ClipDeck keeps recording even when Windows clipboard history is turned off. ClipDeck stores history only on this device and never syncs it, unlike the Windows clipboard's cloud features.
+
+If you disable or do not configure this setting, ClipDeck follows the Windows policy.</string>
+
+      <string id="CaptureImages">Capture images</string>
+      <string id="CaptureImages_Help">If you enable this setting, copied images are recorded. If you disable it, they are not. If you do not configure it, the user decides.</string>
+
+      <string id="CaptureFiles">Capture copied files</string>
+      <string id="CaptureFiles_Help">If you enable this setting, file lists copied in File Explorer are recorded (the paths, not the file contents). If you disable it, they are not. If you do not configure it, the user decides.</string>
+
+      <string id="CaptureRich">Keep rich text formatting</string>
+      <string id="CaptureRich_Help">If you enable this setting, HTML and RTF formatting is stored alongside the plain text. If you disable it, only plain text is kept. If you do not configure it, the user decides.</string>
+
+      <string id="Blocklist">Never capture from these programs</string>
+      <string id="Blocklist_Help">Copies made in the listed programs are never recorded. Enter executable names, one per line, for example keepass.exe.
+
+This list replaces the user's own list, so include the password managers used in your organization. Copies that apps mark as private (as password managers do) are always skipped, whether or not the app is listed.
+
+If you do not configure this setting, the user manages the list. ClipDeck ships with common password managers on it.</string>
+
+      <string id="Encrypt">Encrypt clipboard history on disk</string>
+      <string id="Encrypt_Help">If you enable this setting, stored clips, search previews and thumbnails are encrypted with Windows DPAPI, so only the signed-in user's account can read them. Existing history is re-encrypted in the background.
+
+If you disable this setting, history is stored unencrypted in the user's profile. If you do not configure it, the user decides.</string>
+
+      <string id="RetentionDays">Delete clips after a number of days</string>
+      <string id="RetentionDays_Help">Clips older than the number of days you enter are deleted automatically, including pinned clips. Enter 0 to keep clips until the history limit or disk budget removes them.
+
+If you do not configure this setting, the user chooses, and pinned clips are kept.</string>
+
+      <string id="ClearOnExit">Clear history on exit and sign-out</string>
+      <string id="ClearOnExit_Help">If you enable this setting, unpinned clips are deleted when ClipDeck quits or the user signs out of Windows. If you disable it, history is kept. If you do not configure it, the user decides.</string>
+
+      <string id="HistoryLimit">Number of clips to keep</string>
+      <string id="HistoryLimit_Help">The largest number of unpinned clips kept (10 to 200). The oldest are removed first. If you do not configure this setting, the user chooses (default 50).</string>
+
+      <string id="MaxDiskMb">Disk budget</string>
+      <string id="MaxDiskMb_Help">The most disk space history may use, in MB (50 to 10000). The oldest unpinned clips are removed first. If you do not configure this setting, the user chooses (default 500 MB).</string>
+
+      <string id="MaxItemMb">Largest clip to capture</string>
+      <string id="MaxItemMb_Help">Copies larger than this, in MB (1 to 512), are not recorded. If you do not configure this setting, the user chooses (default 64 MB).</string>
+
+      <string id="Autostart">Start ClipDeck at sign-in</string>
+      <string id="Autostart_Help">If you enable this setting, ClipDeck starts when the user signs in. If you disable it, it does not start automatically. If you do not configure it, the user decides.</string>
+
+      <string id="PasteOnSelect">Paste into the previous app</string>
+      <string id="PasteOnSelect_Help">If you enable this setting, choosing a clip puts it on the clipboard and pastes it into the app the user was working in. If you disable it, choosing a clip only copies it. If you do not configure it, the user decides.</string>
+
+      <string id="RestoreClipboard">Restore the clipboard after pasting</string>
+      <string id="RestoreClipboard_Help">If you enable this setting, ClipDeck puts back what was on the clipboard before it pasted a clip. If you disable it, the pasted clip stays on the clipboard. If you do not configure it, the user decides.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="Blocklist">
+        <multiTextBox refId="BlocklistValue">Programs (one executable name per line):</multiTextBox>
+      </presentation>
+      <presentation id="RetentionDays">
+        <decimalTextBox refId="RetentionDaysValue" defaultValue="30" spinStep="1">Days (0 = no age limit):</decimalTextBox>
+      </presentation>
+      <presentation id="HistoryLimit">
+        <decimalTextBox refId="HistoryLimitValue" defaultValue="50" spinStep="10">Clips:</decimalTextBox>
+      </presentation>
+      <presentation id="MaxDiskMb">
+        <decimalTextBox refId="MaxDiskMbValue" defaultValue="500" spinStep="50">MB:</decimalTextBox>
+      </presentation>
+      <presentation id="MaxItemMb">
+        <decimalTextBox refId="MaxItemMbValue" defaultValue="64" spinStep="8">MB:</decimalTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

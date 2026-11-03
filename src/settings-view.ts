@@ -2,21 +2,20 @@
 
 import { api, type Settings, type Status } from "./api";
 import { bytes, escapeHtml } from "./format";
-import { icons } from "./icons";
+import { icons, mark } from "./icons";
+import { getPlatform, isMac, keycapParts, metaName, primaryCombo } from "./keys";
 
-const root = document.getElementById("settings") as HTMLElement;
+const layer = document.getElementById("settings") as HTMLElement;
+const app = document.getElementById("app") as HTMLElement;
 
-/** Accents kept below ~80% saturation so they sit calmly on the glass. */
-const ACCENTS = ["#4a86e8", "#2fa6a0", "#3fae78", "#d99a2b", "#e0705a", "#d9577f", "#8b6fd6", "#7a8494"];
-
-type Page = "general" | "shortcuts" | "history" | "privacy" | "appearance" | "about";
+type Page = "general" | "display" | "shortcuts" | "history" | "privacy" | "about";
 
 const PAGES: { id: Page; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "sliders" },
+  { id: "display", label: "Display", icon: "display" },
   { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
   { id: "history", label: "History", icon: "history" },
   { id: "privacy", label: "Privacy", icon: "shield" },
-  { id: "appearance", label: "Appearance", icon: "palette" },
   { id: "about", label: "About", icon: "info" },
 ];
 
@@ -27,15 +26,17 @@ let onSaved: (s: Settings) => void = () => {};
 let saveTimer = 0;
 let clearArmed = false;
 
-export const settingsOpen = () => !root.hidden;
-
-const panel = root.closest<HTMLElement>(".panel")!;
+export const settingsOpen = () => !layer.hidden;
 
 export function closeSettings(): void {
-  if (root.hidden) return;
-  root.classList.remove("open");
-  panel.classList.remove("settings-open");
-  window.setTimeout(() => (root.hidden = true), 180);
+  if (layer.hidden || layer.classList.contains("closing")) return;
+  layer.classList.add("closing");
+  app.classList.remove("covered");
+  window.setTimeout(() => {
+    layer.hidden = true;
+    layer.classList.remove("closing");
+    layer.innerHTML = "";
+  }, 170);
 }
 
 export function openSettings(settings: Settings, st: Status, saved: (s: Settings) => void, start: Page = "general"): void {
@@ -43,27 +44,29 @@ export function openSettings(settings: Settings, st: Status, saved: (s: Settings
   status = st;
   onSaved = saved;
   page = start;
-  root.innerHTML = shell();
-  root.hidden = false;
+  clearArmed = false;
+  layer.classList.remove("closing");
+  layer.innerHTML = shell();
+  layer.hidden = false;
+  app.classList.add("covered");
   renderPage();
-  requestAnimationFrame(() => {
-    root.classList.add("open");
-    panel.classList.add("settings-open");
-  });
 }
 
 function shell(): string {
   return `
-  <div class="settings-head">
-    <button class="tool" type="button" data-close title="Back (Esc)" aria-label="Back">${icons.back}</button>
-    <h2>Settings</h2>
-    <span class="muted">v${escapeHtml(status.version)}</span>
-  </div>
-  <nav class="settings-nav" aria-label="Settings sections">
-    <span class="nav-indicator" aria-hidden="true"></span>
-    ${PAGES.map((p) => `<button type="button" data-page="${p.id}">${icons[p.icon]}${p.label}</button>`).join("")}
-  </nav>
-  <div class="settings-page"></div>`;
+  <div class="sheet-backdrop" data-close></div>
+  <section class="sheet" role="dialog" aria-label="Settings">
+    <header class="sheet-head">
+      <h2>Settings</h2>
+      <span class="ver">v${escapeHtml(status.version)}</span>
+      <button class="tool" type="button" data-close title="Done (Esc)" aria-label="Close settings">${icons.close}</button>
+    </header>
+    <nav class="sheet-nav" aria-label="Settings sections">
+      <span class="nav-indicator" aria-hidden="true"></span>
+      ${PAGES.map((p) => `<button type="button" data-page="${p.id}">${icons[p.icon]}${p.label}</button>`).join("")}
+    </nav>
+    <div class="sheet-page"></div>
+  </section>`;
 }
 
 function save(): void {
@@ -75,7 +78,7 @@ function save(): void {
     } catch (err) {
       console.error("save settings", err);
     }
-  }, 180);
+  }, 160);
 }
 
 // ---------------------------------------------------------------- controls
@@ -85,129 +88,203 @@ const set = (key: keyof Settings, value: unknown) => {
   save();
 };
 
-const toggle = (key: keyof Settings, label: string, hint = "") => `
-  <label class="setting">
-    <span class="setting-text"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</span>
-    <input type="checkbox" class="switch" data-key="${key}" ${current[key] ? "checked" : ""}/>
+const hint = (text: string) => (text ? `<small>${text}</small>` : "");
+
+/** Settings fixed by the organization are shown locked. */
+const locked = (key: keyof Settings) => status.managed.includes(key);
+const lockBadge = (key: keyof Settings) =>
+  locked(key) ? `<span class="lock" title="Set by your organization">${icons.lock}Managed</span>` : "";
+
+const toggle = (key: keyof Settings, label: string, help = "") => `
+  <label class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <input type="checkbox" class="switch" data-key="${key}" ${current[key] ? "checked" : ""} ${locked(key) ? "disabled" : ""}/>
   </label>`;
 
-const segmented = (key: keyof Settings, label: string, options: [string, string][], hint = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</span>
-    <div class="segmented" data-key="${key}" role="radiogroup" aria-label="${label}">
+const segmented = (
+  key: keyof Settings,
+  label: string,
+  options: [string, string, string?][],
+  help = "",
+  numeric = false,
+) => `
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <div class="segmented" data-key="${key}" ${numeric ? 'data-numeric="1"' : ""} role="radiogroup" aria-label="${label}">
       ${options
-        .map(
-          ([v, l]) =>
-            `<button type="button" role="radio" aria-checked="${current[key] === v}" data-value="${v}" class="${current[key] === v ? "active" : ""}">${l}</button>`,
-        )
+        .map(([v, l, icon]) => {
+          const on = String(current[key]) === v;
+          return `<button type="button" role="radio" aria-checked="${on}" data-value="${v}" class="${on ? "active" : ""}" ${
+            locked(key) ? "disabled" : ""
+          }>${icon ? icons[icon] : ""}${l}</button>`;
+        })
         .join("")}
     </div>
   </div>`;
 
-const stepper = (key: keyof Settings, label: string, min: number, max: number, step: number, unit: string, hint = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</span>
+const stepper = (key: keyof Settings, label: string, min: number, max: number, step: number, unit: string, help = "") => {
+  const off = locked(key) ? "disabled" : "";
+  return `
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
     <span class="stepper" data-key="${key}" data-min="${min}" data-max="${max}" data-step="${step}">
-      <button type="button" data-delta="-1" aria-label="Decrease">−</button>
-      <input type="number" min="${min}" max="${max}" value="${current[key]}" aria-label="${label}"/>
-      <button type="button" data-delta="1" aria-label="Increase">+</button>
-      <em>${unit}</em>
+      <button type="button" data-delta="-1" aria-label="Decrease" ${off}>−</button>
+      <input type="number" min="${min}" max="${max}" value="${current[key]}" aria-label="${label}" ${off}/>
+      <button type="button" data-delta="1" aria-label="Increase" ${off}>+</button>
+      ${unit ? `<em>${unit}</em>` : ""}
     </span>
   </div>`;
+};
 
 const keycaps = (combo: string) =>
   combo
-    ? combo
-        .split("+")
+    ? keycapParts(combo)
         .map((k) => `<kbd class="key">${escapeHtml(k)}</kbd>`)
-        .join('<span class="plus">+</span>')
-    : `<span class="muted">Off</span>`;
+        .join(isMac() ? "" : '<span class="plus">+</span>')
+    : `<span>Off</span>`;
 
-const recorder = (key: keyof Settings, label: string, hint = "") => `
-  <div class="setting">
-    <span class="setting-text"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</span>
-    <button type="button" class="recorder" data-hotkey="${key}" aria-label="${label}: ${escapeHtml(String(current[key]))}. Click to change">${keycaps(
+const recorder = (key: keyof Settings, label: string, help = "") => `
+  <div class="setting${locked(key) ? " locked" : ""}">
+    <span class="setting-text"><span>${label}${lockBadge(key)}</span>${hint(help)}</span>
+    <button type="button" class="recorder" data-hotkey="${key}" ${locked(key) ? "disabled" : ""} aria-label="${label}: ${escapeHtml(
       String(current[key]),
-    )}</button>
+    )}. Click to change">${keycaps(String(current[key]))}</button>
   </div>`;
+
+/** Per-platform wording and choices. */
+const AUTOSTART_LABEL = { windows: "Start with Windows", macos: "Open at login", linux: "Start at login" };
+const DEVICE = { windows: "PC", macos: "Mac", linux: "computer" };
+const SLOT_OPTIONS: Record<string, [string, string][]> = {
+  windows: [
+    ["Ctrl+Alt", "Ctrl Alt"],
+    ["Ctrl+Shift", "Ctrl ⇧"],
+    ["Alt+Shift", "Alt ⇧"],
+    ["", "Off"],
+  ],
+  macos: [
+    ["Ctrl+Cmd", "⌃⌘"],
+    ["Ctrl+Alt", "⌃⌥"],
+    ["Alt+Cmd", "⌥⌘"],
+    ["", "Off"],
+  ],
+  linux: [
+    ["Ctrl+Alt", "Ctrl Alt"],
+    ["Super", "Super"],
+    ["", "Off"],
+  ],
+};
+const BLOCKLIST_HINT = {
+  windows: "One program per line, for example keepass.exe.",
+  macos: "One app bundle ID per line, for example com.bitwarden.desktop.",
+  linux: "One program name per line, for example keepassxc.",
+};
+const ENCRYPT_HINT = {
+  windows: "Windows DPAPI: readable only by your account",
+  macos: "Key kept in your login Keychain: readable only by your account",
+  linux: "",
+};
+
+const managedNote = () =>
+  status.managed.length
+    ? `<p class="note managed">${icons.shield}Some settings are managed by your organization and can't be changed here.</p>`
+    : "";
 
 // ---------------------------------------------------------------- pages
 
 function pageHtml(): string {
+  const platform = getPlatform();
   switch (page) {
     case "general":
       return `
-        ${toggle("autostart", "Start with Windows")}
-        ${toggle("pasteOnSelect", "Paste into the previous app", "Off: choosing an item only copies it")}
-        ${toggle("restoreClipboard", "Restore clipboard after pasting", "Puts back whatever you had copied before")}
-        ${segmented("position", "Open the deck", [
-          ["cursor", "At cursor"],
-          ["center", "Centered"],
-        ])}
+        ${managedNote()}
+        ${toggle("autostart", AUTOSTART_LABEL[platform])}
+        ${
+          platform !== "linux"
+            ? `${toggle("pasteOnSelect", "Paste into the previous app", "Off: choosing a clip only copies it")}
+               ${toggle("restoreClipboard", "Restore clipboard after pasting", "Puts back whatever you had copied before")}`
+            : `<p class="note">On Linux, choosing a clip copies it; press Ctrl+V to paste. Linux doesn't let one app type into another.</p>`
+        }
         ${toggle("keepDashboardWarm", "Keep the deck ready", "Opens instantly, keeps ~120 MB in memory")}`;
+    case "display":
+      return `
+        ${segmented(
+          "displayMode",
+          "Show clips",
+          [
+            ["fullscreen", "Full screen", "maximize"],
+            ["window", "Window", "windowed"],
+          ],
+          "Full screen covers the display like Mission Control. Window can be dragged by its top bar and resized from any edge.",
+        )}
+        ${segmented("reduceMotion", "Reduce motion", [
+          ["system", "System"],
+          ["on", "On"],
+          ["off", "Off"],
+        ])}
+        <p class="note">Double-click the window's top bar to go back to full screen. The window remembers where you left it.</p>`;
     case "shortcuts": {
       const errors = status.hotkeyErrors.length
         ? `<p class="note warn">${status.hotkeyErrors.map(escapeHtml).join("<br/>")}</p>`
         : "";
       return `
         ${recorder("hotkeyDashboard", "Open the deck")}
-        ${recorder("hotkeyQueue", "Toggle paste queue", "While on, the deck hotkey pastes queued items in order")}
-        ${segmented("slotModifiers", "Paste slots 1–9", [
-          ["Ctrl+Alt", "Ctrl Alt"],
-          ["Ctrl+Shift", "Ctrl ⇧"],
-          ["Alt+Shift", "Alt ⇧"],
-          ["", "Off"],
-        ])}
+        ${recorder("hotkeyQueue", "Toggle paste queue", "While on, the deck shortcut pastes queued clips in order")}
+        ${segmented("slotModifiers", "Paste slots 1–9", SLOT_OPTIONS[platform])}
         ${errors}
-        <p class="note">Click a shortcut, then press the new keys. Plain Ctrl+C and Ctrl+V are never touched.</p>`;
+        <p class="note">Click a shortcut, then press the new keys. Plain ${primaryCombo("C")} and ${primaryCombo("V")} are never touched.</p>`;
     }
     case "history":
       return `
-        ${stepper("historyLimit", "Items to keep", 10, 200, 10, "", "Pinned items are extra and never removed")}
+        ${managedNote()}
+        ${stepper("historyLimit", "Clips to keep", 10, 200, 10, "", "Pinned clips are extra and never removed")}
+        ${segmented(
+          "retentionDays",
+          "Delete clips after",
+          [
+            ["0", "Never"],
+            ["1", "1 day"],
+            ["7", "7 days"],
+            ["30", "30 days"],
+            ["90", "90 days"],
+          ],
+          "Older unpinned clips are removed automatically",
+          true,
+        )}
         ${stepper("maxDiskMb", "Disk budget", 50, 10000, 50, "MB", `${bytes(status.diskBytes)} in use`)}
-        ${stepper("maxItemMb", "Largest item", 1, 512, 8, "MB")}
+        ${stepper("maxItemMb", "Largest clip", 1, 512, 8, "MB")}
         ${toggle("captureImages", "Capture images")}
         ${toggle("captureFiles", "Capture copied files")}
         ${toggle("captureRich", "Keep rich text formatting")}`;
     case "privacy":
       return `
-        ${toggle("encrypt", "Encrypt history on disk", "Windows DPAPI: readable only by your account")}
-        ${toggle("clearOnExit", "Clear on exit and sign-out", "Pinned items are kept")}
-        <label class="setting stack">
-          <span class="setting-text"><span>Never capture from</span><small>One app per line. Copies marked private by password managers are always skipped.</small></span>
-          <textarea data-blocklist rows="4" spellcheck="false">${escapeHtml(current.blocklist.join("\n"))}</textarea>
+        ${managedNote()}
+        ${
+          status.encryptionSupported
+            ? toggle("encrypt", "Encrypt history on disk", ENCRYPT_HINT[platform])
+            : `<p class="note">Encryption at rest isn't available on Linux yet. Your history folder is readable only by your account.</p>`
+        }
+        ${toggle("clearOnExit", "Clear on exit and sign-out", "Pinned clips are kept")}
+        <label class="setting stack${locked("blocklist") ? " locked" : ""}">
+          <span class="setting-text"><span>Never capture from${lockBadge("blocklist")}</span><small>${
+            BLOCKLIST_HINT[platform]
+          } Copies marked private by password managers are always skipped.</small></span>
+          <textarea data-blocklist rows="4" spellcheck="false" ${locked("blocklist") ? "readonly" : ""}>${escapeHtml(
+            current.blocklist.join("\n"),
+          )}</textarea>
         </label>
         <div class="button-row">
-          <button type="button" class="btn danger${clearArmed ? " armed" : ""}" data-clear>${icons.trash}${clearArmed ? "Click again to clear" : "Clear history"}</button>
+          <button type="button" class="btn${clearArmed ? " armed" : ""}" data-clear>${icons.trash}${clearArmed ? "Click again to clear" : "Clear history"}</button>
           <button type="button" class="btn" data-open-folder>${icons.folder}Open data folder</button>
         </div>
-        <p class="note">Everything stays on this PC. ClipDeck makes no network connections and has no telemetry.</p>`;
-    case "appearance":
-      return `
-        ${segmented("theme", "Theme", [
-          ["system", "System"],
-          ["light", "Light"],
-          ["dark", "Dark"],
-        ])}
-        <div class="setting">
-          <span class="setting-text"><span>Accent</span><small>Tints the glass gradient and highlights</small></span>
-          <div class="swatches" role="radiogroup" aria-label="Accent colour">${ACCENTS.map(
-            (c) =>
-              `<button type="button" role="radio" aria-checked="${current.accent === c}" aria-label="${c}" data-accent="${c}" style="--c:${c}" class="${
-                current.accent === c ? "active" : ""
-              }"></button>`,
-          ).join("")}</div>
-        </div>
-        ${segmented("reduceMotion", "Reduce motion", [
-          ["system", "System"],
-          ["on", "On"],
-          ["off", "Off"],
-        ])}`;
+        <p class="note">Everything stays on this ${DEVICE[platform]}. ClipDeck makes no network connections and has no telemetry.</p>`;
     case "about":
       return `
-        <div class="about-card"><span class="logo">${icons.paste}</span><div><h3>ClipDeck</h3><p>Version ${escapeHtml(status.version)}</p></div></div>
+        <div class="about-card"><span class="logo">${mark}</span><div><h3>ClipDeck</h3><p>Version ${escapeHtml(status.version)} · ${
+          platform === "macos" ? "macOS" : platform === "linux" ? "Linux" : "Windows"
+        }</p></div></div>
         <div class="prose-sm">
           <p>Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. Commercial use needs a separate licence from the author.</p>
+          <p>No network access, no telemetry, no accounts. Your clipboard history never leaves this ${DEVICE[platform]}.</p>
           <p>Copyright © 2026 Tanmay Angarkar. Provided as is, without warranty.</p>
         </div>`;
   }
@@ -215,12 +292,12 @@ function pageHtml(): string {
 
 function renderPage(): void {
   const index = PAGES.findIndex((p) => p.id === page);
-  root.querySelector<HTMLElement>(".settings-nav")!.style.setProperty("--nav", String(index));
-  root.querySelectorAll<HTMLButtonElement>("[data-page]").forEach((b) => {
+  layer.querySelector<HTMLElement>(".sheet-nav")!.style.setProperty("--nav", String(index));
+  layer.querySelectorAll<HTMLButtonElement>("[data-page]").forEach((b) => {
     b.classList.toggle("active", b.dataset.page === page);
     b.setAttribute("aria-current", String(b.dataset.page === page));
   });
-  const body = root.querySelector<HTMLElement>(".settings-page")!;
+  const body = layer.querySelector<HTMLElement>(".sheet-page")!;
   body.innerHTML = pageHtml();
   body.scrollTop = 0;
 }
@@ -236,7 +313,7 @@ function hotkeyFromEvent(e: KeyboardEvent): string | null {
   else if (key === " ") name = "Space";
   else if (["Insert", "Home", "End", "PageUp", "PageDown"].includes(key)) name = key;
   if (!name) return null;
-  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && metaName()].filter(Boolean);
   if (!mods.length) return null;
   return [...mods, name].join("+");
 }
@@ -251,7 +328,13 @@ function stopRecording(): void {
   recording = null;
 }
 
-root.addEventListener("click", (e) => {
+function clamp(value: number, box: HTMLElement): number {
+  const min = Number(box.dataset.min);
+  const max = Number(box.dataset.max);
+  return Math.min(max, Math.max(min, Math.round(value || min)));
+}
+
+layer.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
   if (t.closest("[data-close]")) return closeSettings();
 
@@ -269,25 +352,15 @@ root.addEventListener("click", (e) => {
       b.classList.toggle("active", b === seg);
       b.setAttribute("aria-checked", String(b === seg));
     });
-    return set(group.dataset.key as keyof Settings, seg.dataset.value);
-  }
-
-  const accent = t.closest<HTMLButtonElement>("[data-accent]");
-  if (accent) {
-    root.querySelectorAll("[data-accent]").forEach((b) => {
-      b.classList.toggle("active", b === accent);
-      b.setAttribute("aria-checked", String(b === accent));
-    });
-    document.documentElement.style.setProperty("--accent", accent.dataset.accent!);
-    return set("accent", accent.dataset.accent);
+    const value = group.dataset.numeric ? Number(seg.dataset.value) : seg.dataset.value;
+    return set(group.dataset.key as keyof Settings, value);
   }
 
   const delta = t.closest<HTMLButtonElement>("[data-delta]");
   if (delta) {
     const box = delta.closest<HTMLElement>(".stepper")!;
     const input = box.querySelector("input")!;
-    const step = Number(box.dataset.step);
-    const value = clamp(Number(input.value) + Number(delta.dataset.delta) * step, box);
+    const value = clamp(Number(input.value) + Number(delta.dataset.delta) * Number(box.dataset.step), box);
     input.value = String(value);
     return set(box.dataset.key as keyof Settings, value);
   }
@@ -320,13 +393,7 @@ root.addEventListener("click", (e) => {
   }
 });
 
-function clamp(value: number, box: HTMLElement): number {
-  const min = Number(box.dataset.min);
-  const max = Number(box.dataset.max);
-  return Math.min(max, Math.max(min, Math.round(value || min)));
-}
-
-root.addEventListener("change", (e) => {
+layer.addEventListener("change", (e) => {
   const t = e.target as HTMLElement;
   if (t instanceof HTMLInputElement && t.classList.contains("switch")) return set(t.dataset.key as keyof Settings, t.checked);
   if (t instanceof HTMLInputElement && t.type === "number") {
@@ -346,7 +413,7 @@ root.addEventListener("change", (e) => {
   }
 });
 
-root.addEventListener("keydown", (e) => {
+layer.addEventListener("keydown", (e) => {
   if (!recording) return;
   e.preventDefault();
   e.stopPropagation();
@@ -358,6 +425,6 @@ root.addEventListener("keydown", (e) => {
   save();
 });
 
-root.addEventListener("focusout", (e) => {
+layer.addEventListener("focusout", (e) => {
   if (recording && e.target === recording) stopRecording();
 });

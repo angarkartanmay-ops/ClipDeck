@@ -26,8 +26,8 @@ fn parse_modifier(token: &str) -> Option<u32> {
     match token.to_ascii_lowercase().as_str() {
         "ctrl" | "control" => Some(MOD_CONTROL.0),
         "shift" => Some(MOD_SHIFT.0),
-        "alt" => Some(MOD_ALT.0),
-        "win" | "super" | "meta" => Some(MOD_WIN.0),
+        "alt" | "option" => Some(MOD_ALT.0),
+        "win" | "super" | "meta" | "cmd" | "command" => Some(MOD_WIN.0),
         _ => None,
     }
 }

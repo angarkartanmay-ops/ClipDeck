@@ -18,8 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, ShowWindow, SW_RESTORE,
 };
 
-use crate::clip::{self, ClipData, ReadOptions, ReadOutcome};
-use crate::core_window;
+use super::{clipboard, core_window};
+use crate::clip::{ClipData, ReadOptions, ReadOutcome};
 
 /// The current foreground window, unless it belongs to ClipDeck itself.
 pub fn foreground_target() -> Option<isize> {
@@ -39,14 +39,14 @@ fn to_hwnd(raw: isize) -> HWND {
 }
 
 pub fn snapshot_clipboard() -> Option<ClipData> {
-    match clip::read(core_window::hwnd(), &ReadOptions::everything()) {
+    match clipboard::read(core_window::hwnd(), &ReadOptions::everything()) {
         Ok(ReadOutcome::Data(data)) => Some(data),
         _ => None,
     }
 }
 
 pub fn set_clipboard(data: &ClipData) -> Result<(), String> {
-    clip::write(core_window::hwnd(), data)?;
+    clipboard::write(core_window::hwnd(), data)?;
     core_window::mark_self_write();
     Ok(())
 }

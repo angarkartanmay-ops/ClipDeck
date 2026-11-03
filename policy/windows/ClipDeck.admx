@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2026 Tanmay Angarkar. Licensed under PolyForm Noncommercial 1.0.0. -->
+<!--
+  Group Policy template for ClipDeck. Copy this file to
+  %SystemRoot%\PolicyDefinitions (or the domain's central store) and
+  en-US\ClipDeck.adml to the en-US subfolder. Settings are written to
+  HKLM or HKCU\Software\Policies\ClipDeck; machine policy wins.
+-->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="clipdeck" namespace="TanmayAngarkar.Policies.ClipDeck" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_ClipDeck" displayName="$(string.SUPPORTED_ClipDeck)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="ClipDeck" displayName="$(string.ClipDeck)" />
+    <category name="Capture" displayName="$(string.Capture)">
+      <parentCategory ref="ClipDeck" />
+    </category>
+    <category name="History" displayName="$(string.History)">
+      <parentCategory ref="ClipDeck" />
+    </category>
+    <category name="Behavior" displayName="$(string.Behavior)">
+      <parentCategory ref="ClipDeck" />
+    </category>
+  </categories>
+  <policies>
+    <!-- Capture -->
+    <policy name="DisableCapture" class="Both" displayName="$(string.DisableCapture)" explainText="$(string.DisableCapture_Help)" key="Software\Policies\ClipDeck" valueName="disableCapture">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowWhenSystemHistoryDisabled" class="Both" displayName="$(string.AllowWhenSystemHistoryDisabled)" explainText="$(string.AllowWhenSystemHistoryDisabled_Help)" key="Software\Policies\ClipDeck" valueName="allowWhenSystemHistoryDisabled">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="CaptureImages" class="Both" displayName="$(string.CaptureImages)" explainText="$(string.CaptureImages_Help)" key="Software\Policies\ClipDeck" valueName="captureImages">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="CaptureFiles" class="Both" displayName="$(string.CaptureFiles)" explainText="$(string.CaptureFiles_Help)" key="Software\Policies\ClipDeck" valueName="captureFiles">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="CaptureRich" class="Both" displayName="$(string.CaptureRich)" explainText="$(string.CaptureRich_Help)" key="Software\Policies\ClipDeck" valueName="captureRich">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="Blocklist" class="Both" displayName="$(string.Blocklist)" explainText="$(string.Blocklist_Help)" presentation="$(presentation.Blocklist)" key="Software\Policies\ClipDeck">
+      <parentCategory ref="Capture" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <elements>
+        <multiText id="BlocklistValue" valueName="blocklist" />
+      </elements>
+    </policy>
+
+    <!-- History and storage -->
+    <policy name="Encrypt" class="Both" displayName="$(string.Encrypt)" explainText="$(string.Encrypt_Help)" key="Software\Policies\ClipDeck" valueName="encrypt">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="RetentionDays" class="Both" displayName="$(string.RetentionDays)" explainText="$(string.RetentionDays_Help)" presentation="$(presentation.RetentionDays)" key="Software\Policies\ClipDeck">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <elements>
+        <decimal id="RetentionDaysValue" valueName="retentionDays" minValue="0" maxValue="3650" required="true" />
+      </elements>
+    </policy>
+    <policy name="ClearOnExit" class="Both" displayName="$(string.ClearOnExit)" explainText="$(string.ClearOnExit_Help)" key="Software\Policies\ClipDeck" valueName="clearOnExit">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="HistoryLimit" class="Both" displayName="$(string.HistoryLimit)" explainText="$(string.HistoryLimit_Help)" presentation="$(presentation.HistoryLimit)" key="Software\Policies\ClipDeck">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <elements>
+        <decimal id="HistoryLimitValue" valueName="historyLimit" minValue="10" maxValue="200" required="true" />
+      </elements>
+    </policy>
+    <policy name="MaxDiskMb" class="Both" displayName="$(string.MaxDiskMb)" explainText="$(string.MaxDiskMb_Help)" presentation="$(presentation.MaxDiskMb)" key="Software\Policies\ClipDeck">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <elements>
+        <decimal id="MaxDiskMbValue" valueName="maxDiskMb" minValue="50" maxValue="10000" required="true" />
+      </elements>
+    </policy>
+    <policy name="MaxItemMb" class="Both" displayName="$(string.MaxItemMb)" explainText="$(string.MaxItemMb_Help)" presentation="$(presentation.MaxItemMb)" key="Software\Policies\ClipDeck">
+      <parentCategory ref="History" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <elements>
+        <decimal id="MaxItemMbValue" valueName="maxItemMb" minValue="1" maxValue="512" required="true" />
+      </elements>
+    </policy>
+
+    <!-- Behavior -->
+    <policy name="Autostart" class="Both" displayName="$(string.Autostart)" explainText="$(string.Autostart_Help)" key="Software\Policies\ClipDeck" valueName="autostart">
+      <parentCategory ref="Behavior" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="PasteOnSelect" class="Both" displayName="$(string.PasteOnSelect)" explainText="$(string.PasteOnSelect_Help)" key="Software\Policies\ClipDeck" valueName="pasteOnSelect">
+      <parentCategory ref="Behavior" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="RestoreClipboard" class="Both" displayName="$(string.RestoreClipboard)" explainText="$(string.RestoreClipboard_Help)" key="Software\Policies\ClipDeck" valueName="restoreClipboard">
+      <parentCategory ref="Behavior" />
+      <supportedOn ref="SUPPORTED_ClipDeck" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

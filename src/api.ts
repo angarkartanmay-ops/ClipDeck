@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { mockApi } from "./mock";
 
 export type Kind = "text" | "rich" | "image" | "files";
@@ -36,21 +37,31 @@ export interface Settings {
   slotModifiers: string;
   pasteOnSelect: boolean;
   restoreClipboard: boolean;
-  position: "cursor" | "center";
+  displayMode: "fullscreen" | "window";
+  windowBounds: { x: number; y: number; width: number; height: number } | null;
   keepDashboardWarm: boolean;
-  theme: "system" | "light" | "dark";
-  accent: string;
   reduceMotion: "system" | "on" | "off";
   captureImages: boolean;
   captureFiles: boolean;
   captureRich: boolean;
   blocklist: string[];
   encrypt: boolean;
+  retentionDays: number;
   clearOnExit: boolean;
   autostart: boolean;
 }
 
+export type Platform = "windows" | "macos" | "linux";
+
+export interface Notice {
+  id: string;
+  text: string;
+  action: string | null;
+  actionLabel: string | null;
+}
+
 export interface Status {
+  platform: Platform;
   paused: boolean;
   queueActive: boolean;
   queue: number[];
@@ -58,8 +69,12 @@ export interface Status {
   itemCount: number;
   diskBytes: number;
   canPaste: boolean;
+  canAutoPaste: boolean;
+  encryptionSupported: boolean;
   glass: boolean;
-  nativeCorners: boolean;
+  /** Settings fixed by the organization's policy. */
+  managed: string[];
+  notices: Notice[];
   version: string;
 }
 
@@ -71,6 +86,7 @@ const call = <T>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
 export const api = {
   listItems: () => call<Item[]>("list_items"),
   getThumb: (id: number) => call<string | null>("get_thumb", { id }),
+  getPreview: (id: number) => call<string | null>("get_preview", { id }),
   paste: (id: number, plain = false) => call<void>("paste_item", { id, plain }),
   copy: (id: number) => call<void>("copy_item", { id }),
   setPinned: (id: number, pinned: boolean) => call<void>("set_pinned", { id, pinned }),
@@ -85,6 +101,9 @@ export const api = {
   ready: () => call<void>("dashboard_ready"),
   close: () => call<void>("close_dashboard"),
   openDataDir: () => call<void>("open_data_dir"),
+  openSystemSettings: (kind: string) => call<void>("open_system_settings", { kind }),
+  /** Starts moving the window with the mouse (window mode). */
+  startDragging: () => (inTauri ? getCurrentWindow().startDragging() : Promise.resolve()),
 };
 
 export function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {

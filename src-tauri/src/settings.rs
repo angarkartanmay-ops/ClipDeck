@@ -27,14 +27,14 @@ pub struct Settings {
     pub paste_on_select: bool,
     /// Put the previous clipboard content back after pasting.
     pub restore_clipboard: bool,
-    /// "cursor" or "center".
-    pub position: String,
+    /// "fullscreen" (overlay covering the monitor) or "window" (movable,
+    /// resizable panel).
+    pub display_mode: String,
+    /// Last position and size of the window mode, in physical pixels.
+    pub window_bounds: Option<WindowBounds>,
     /// Hide instead of destroying the dashboard: faster to open, more memory.
     pub keep_dashboard_warm: bool,
 
-    /// "system", "light" or "dark".
-    pub theme: String,
-    pub accent: String,
     /// "system", "on" or "off".
     pub reduce_motion: String,
 
@@ -42,10 +42,14 @@ pub struct Settings {
     pub capture_files: bool,
     pub capture_rich: bool,
 
-    /// Executable names (e.g. "keepass.exe") whose copies are never captured.
+    /// Apps whose copies are never captured: executable names on Windows
+    /// and Linux ("keepass.exe", "keepassxc"), bundle IDs on macOS.
     pub blocklist: Vec<String>,
-    /// Encrypt stored history with Windows DPAPI (current user).
+    /// Encrypt stored history with the OS key store (DPAPI on Windows,
+    /// Keychain on macOS).
     pub encrypt: bool,
+    /// Delete clips older than this many days (0 keeps them until evicted).
+    pub retention_days: u32,
     /// Remove unpinned history when ClipDeck exits or the user signs out.
     pub clear_on_exit: bool,
     pub autostart: bool,
@@ -57,29 +61,51 @@ impl Default for Settings {
             history_limit: 50,
             max_disk_mb: 500,
             max_item_mb: 64,
-            hotkey_dashboard: "Ctrl+Shift+V".into(),
-            hotkey_queue: "Ctrl+Shift+Q".into(),
-            slot_modifiers: "Ctrl+Alt".into(),
+            hotkey_dashboard: DEFAULT_HOTKEYS.0.into(),
+            hotkey_queue: DEFAULT_HOTKEYS.1.into(),
+            slot_modifiers: DEFAULT_HOTKEYS.2.into(),
             paste_on_select: true,
             restore_clipboard: false,
-            position: "cursor".into(),
+            display_mode: "fullscreen".into(),
+            window_bounds: None,
             keep_dashboard_warm: false,
-            theme: "system".into(),
-            accent: "#4a86e8".into(),
             reduce_motion: "system".into(),
             capture_images: true,
             capture_files: true,
             capture_rich: true,
             blocklist: default_blocklist(),
             encrypt: false,
+            retention_days: 0,
             clear_on_exit: false,
             autostart: true,
         }
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Default (dashboard, queue, slot modifiers) shortcuts per platform. They
+/// avoid each OS's own bindings: Shift+Cmd+V is "Paste and Match Style" on
+/// macOS and Ctrl+Shift+V pastes in Linux terminals.
+#[cfg(windows)]
+const DEFAULT_HOTKEYS: (&str, &str, &str) = ("Ctrl+Shift+V", "Ctrl+Shift+Q", "Ctrl+Alt");
+#[cfg(target_os = "macos")]
+const DEFAULT_HOTKEYS: (&str, &str, &str) = ("Ctrl+Cmd+V", "Ctrl+Cmd+B", "Ctrl+Cmd");
+#[cfg(not(any(windows, target_os = "macos")))]
+const DEFAULT_HOTKEYS: (&str, &str, &str) = ("Ctrl+Alt+V", "Ctrl+Alt+B", "");
+
+/// Password managers on every platform: Windows executables, macOS bundle
+/// IDs and Linux program names. Copies they mark as private are skipped
+/// regardless; this also covers apps that don't mark them.
 fn default_blocklist() -> Vec<String> {
     [
+        // Windows
         "1password.exe",
         "bitwarden.exe",
         "dashlane.exe",
@@ -93,6 +119,24 @@ fn default_blocklist() -> Vec<String> {
         "proton pass.exe",
         "pwsafe.exe",
         "roboform.exe",
+        // macOS
+        "com.1password.1password",
+        "com.agilebits.onepassword7",
+        "com.bitwarden.desktop",
+        "com.apple.passwords",
+        "com.apple.keychainaccess",
+        "org.keepassxc.keepassxc",
+        "com.lastpass.lastpassmacdesktop",
+        "com.dashlane.dashlanephonefinal",
+        "in.sinew.enpass-desktop",
+        "com.nordpass.macos.nordpass",
+        "me.proton.pass.electron",
+        // Linux
+        "keepassxc",
+        "bitwarden",
+        "1password",
+        "enpass",
+        "seahorse",
     ]
     .into_iter()
     .map(String::from)
@@ -138,20 +182,15 @@ impl Settings {
         self.history_limit = self.history_limit.clamp(10, 200);
         self.max_disk_mb = self.max_disk_mb.clamp(50, 10_000);
         self.max_item_mb = self.max_item_mb.clamp(1, 512);
-        if !matches!(self.position.as_str(), "cursor" | "center") {
-            self.position = "cursor".into();
+        self.retention_days = self.retention_days.min(3650);
+        if !crate::platform::encryption_supported() {
+            self.encrypt = false;
         }
-        if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
-            self.theme = "system".into();
+        if !matches!(self.display_mode.as_str(), "fullscreen" | "window") {
+            self.display_mode = "fullscreen".into();
         }
         if !matches!(self.reduce_motion.as_str(), "system" | "on" | "off") {
             self.reduce_motion = "system".into();
-        }
-        let accent_ok = self.accent.len() == 7
-            && self.accent.starts_with('#')
-            && self.accent[1..].chars().all(|c| c.is_ascii_hexdigit());
-        if !accent_ok {
-            self.accent = Settings::default().accent;
         }
         self.blocklist = self
             .blocklist
@@ -160,6 +199,15 @@ impl Settings {
             .filter(|s| !s.is_empty())
             .collect();
         self
+    }
+
+    pub fn is_window_mode(&self) -> bool {
+        self.display_mode == "window"
+    }
+
+    /// Oldest creation time (ms since the epoch) clips may have, if limited.
+    pub fn retention_cutoff(&self, now_ms: i64) -> Option<i64> {
+        (self.retention_days > 0).then(|| now_ms - self.retention_days as i64 * 86_400_000)
     }
 
     pub fn max_disk_bytes(&self) -> u64 {

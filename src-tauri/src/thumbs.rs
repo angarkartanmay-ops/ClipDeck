@@ -6,17 +6,44 @@ use std::io::Cursor;
 
 use image::{DynamicImage, ImageFormat};
 
-use crate::clip::{ClipData, DIB, PNG};
+use crate::clip::{ClipData, DIB, MAC_TIFF};
 
-const MAX_W: u32 = 480;
-const MAX_H: u32 = 300;
+/// Large enough to stay sharp on full-screen tiles at 150% scaling.
+const MAX_W: u32 = 960;
+const MAX_H: u32 = 640;
+/// Quick Look previews are capped so a huge capture stays responsive.
+const PREVIEW_MAX: u32 = 2560;
+
+fn decode(data: &ClipData) -> Option<DynamicImage> {
+    data.png()
+        .and_then(|png| image::load_from_memory_with_format(png, ImageFormat::Png).ok())
+        .or_else(|| data.get(DIB).and_then(decode_dib))
+        // macOS: many apps copy images as TIFF only.
+        .or_else(|| {
+            data.get(MAC_TIFF)
+                .and_then(|t| image::load_from_memory(t).ok())
+        })
+}
 
 pub fn make(data: &ClipData) -> Option<Vec<u8>> {
-    let img = data
-        .get(PNG)
-        .and_then(|png| image::load_from_memory_with_format(png, ImageFormat::Png).ok())
-        .or_else(|| data.get(DIB).and_then(decode_dib))?;
-    let mut rgba = img.thumbnail(MAX_W, MAX_H).to_rgba8();
+    encode(decode(data)?.thumbnail(MAX_W, MAX_H))
+}
+
+/// Full-size PNG for the Quick Look preview. A copied PNG is returned as is.
+pub fn preview(data: &ClipData) -> Option<Vec<u8>> {
+    if let Some(png) = data.png() {
+        return Some(png.to_vec());
+    }
+    let img = decode(data)?;
+    if img.width() > PREVIEW_MAX || img.height() > PREVIEW_MAX {
+        encode(img.thumbnail(PREVIEW_MAX, PREVIEW_MAX))
+    } else {
+        encode(img)
+    }
+}
+
+fn encode(img: DynamicImage) -> Option<Vec<u8>> {
+    let mut rgba = img.to_rgba8();
     // Many apps put 32-bit DIBs with an unused (zero) alpha channel on the
     // clipboard; treat a fully transparent image as opaque.
     if rgba.pixels().all(|p| p[3] == 0) {

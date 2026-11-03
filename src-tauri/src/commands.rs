@@ -30,6 +30,18 @@ pub async fn get_thumb(state: AppStateRef<'_>, id: i64) -> Result<Option<String>
     }))
 }
 
+/// Full-resolution image for Quick Look.
+#[tauri::command]
+pub async fn get_preview(state: AppStateRef<'_>, id: i64) -> Result<Option<String>, String> {
+    let data = state.store.load_data(id)?;
+    Ok(crate::thumbs::preview(&data).map(|png| {
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        )
+    }))
+}
+
 #[tauri::command]
 pub fn paste_item(app: AppHandle, state: AppStateRef<'_>, id: i64, plain: bool) {
     let target = state.target.lock().unwrap().take();
@@ -127,4 +139,10 @@ pub fn close_dashboard(app: AppHandle) {
 #[tauri::command]
 pub fn open_data_dir(app: AppHandle) {
     actions::open_data_dir(&app);
+}
+
+/// Opens the OS settings page a notice points at (e.g. macOS Accessibility).
+#[tauri::command]
+pub fn open_system_settings(kind: String) {
+    crate::platform::open_system_settings(&kind);
 }
