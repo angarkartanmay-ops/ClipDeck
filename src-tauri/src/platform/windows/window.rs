@@ -38,11 +38,12 @@ pub fn configure<'a>(
         .transparent(true)
         .shadow(windowed)
         // Native acrylic: blurs whatever is behind the window. The tint
-        // colour is only used by Windows 10's acrylic implementation.
+        // colour is only used by Windows 10's acrylic implementation; kept
+        // light so the screen behind stays visible, as on Windows 11.
         .effects(
             EffectsBuilder::new()
                 .effect(Effect::Acrylic)
-                .color(Color(8, 8, 10, 150))
+                .color(Color(10, 10, 14, 96))
                 .build(),
         )
         // Monochrome black glass in every system theme.

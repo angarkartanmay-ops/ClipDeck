@@ -32,9 +32,15 @@
 
 :root {
   /* Monochrome: every colour is a white or near-black at some alpha. */
-  --veil: rgba(7, 7, 9, 0.6);
+  /* Light enough that the screen behind reads as soft, blurred shapes. */
+  --veil: rgba(9, 9, 13, 0.3);
   --veil-solid: rgb(14, 14, 16);
-  --sheet: rgba(16, 16, 19, 0.86);
+  --sheet: rgba(17, 17, 22, 0.7);
+  /* Frosted glass: a faint top-lit sheen over a smoked tint. */
+  --glass: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025) 46%), rgba(14, 14, 19, 0.56);
+  --glass-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 50%), rgba(12, 12, 16, 0.66);
+  --rim: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --pearl: linear-gradient(180deg, #fff, #e6e6eb);
   --surface: rgba(255, 255, 255, 0.055);
   --surface-2: rgba(255, 255, 255, 0.085);
   --surface-3: rgba(255, 255, 255, 0.13);
@@ -47,8 +53,8 @@
   --ink-4: rgba(244, 244, 246, 0.24);
   --ring: #f4f4f6;
   --on-ink: #0c0c0e;
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.35);
-  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow: 0 30px 80px -12px rgba(0, 0, 0, 0.55), 0 8px 24px -6px rgba(0, 0, 0, 0.3);
+  --card-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), 0 2px 6px -1px rgba(0, 0, 0, 0.22);
 
   --font-ui: "UI Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-display: "UI Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
@@ -81,6 +87,7 @@
 
 :root[data-glass="off"] {
   --veil: var(--veil-solid);
+  --sheet: rgb(20, 20, 24);
 }
 
 * {
@@ -129,7 +136,8 @@ button {
   inset: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* clip, not hidden: focusing a control must never scroll the frame. */
+  overflow: clip;
   isolation: isolate;
 }
 
@@ -139,10 +147,31 @@ button {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.045), transparent 60%),
-    radial-gradient(90% 70% at 50% 110%, rgba(0, 0, 0, 0.35), transparent 70%),
+    /* Darker bands behind the bar and the dock keep their text legible;
+       the middle stays clear so the work behind shows through. */
+    linear-gradient(180deg, rgba(6, 6, 9, 0.5), transparent 110px),
+    linear-gradient(0deg, rgba(6, 6, 9, 0.55), transparent 120px),
+    /* Two faint light leaks give the smoke a cool-to-warm cast. */
+    radial-gradient(60% 50% at 12% 0%, rgba(120, 140, 255, 0.07), transparent 70%),
+    radial-gradient(55% 45% at 92% 100%, rgba(255, 170, 120, 0.05), transparent 70%),
+    radial-gradient(130% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.28)),
     var(--veil);
   opacity: 0;
+}
+
+/* Fine grain so the glass reads as a material, not a flat tint. */
+.veil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+:root[data-glass="off"] .veil {
+  background: var(--veil-solid);
 }
 
 .app.entered .veil {
@@ -172,7 +201,7 @@ button {
 }
 
 :root[data-display="window"] .app {
-  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* macOS draws no corners for a borderless transparent window; match the
@@ -242,8 +271,8 @@ button {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--glass);
+  box-shadow: var(--rim), 0 4px 12px -4px rgba(0, 0, 0, 0.4);
   color: var(--ink);
 }
 
@@ -267,8 +296,8 @@ button {
   height: 36px;
   padding: 0 7px 0 13px;
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--glass);
+  box-shadow: var(--rim), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
   cursor: text;
   transition: background 200ms var(--ease), box-shadow 200ms var(--ease);
 }
@@ -278,8 +307,8 @@ button {
 }
 
 .search:focus-within {
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line-3), 0 0 0 4px rgba(255, 255, 255, 0.05);
+  background: var(--glass-strong);
+  box-shadow: inset 0 0 0 1px var(--line-3), inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 0 4px rgba(255, 255, 255, 0.06), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
 }
 
 .search-icon {
@@ -329,8 +358,8 @@ button {
   display: flex;
   padding: 3px;
   border-radius: 11px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--glass);
+  box-shadow: var(--rim), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 }
 
 .filters button {
@@ -366,7 +395,8 @@ button {
   width: 40px;
   height: 26px;
   border-radius: 8px;
-  background: var(--ink);
+  background: var(--pearl);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.08);
   transition: transform 420ms var(--spring-soft), width 420ms var(--spring-soft);
 }
 
@@ -477,8 +507,8 @@ button {
   margin: 4px 16px 0;
   padding: 8px 8px 8px 12px;
   border-radius: 12px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line-2);
+  background: var(--glass-strong);
+  box-shadow: var(--rim), 0 10px 30px -12px rgba(0, 0, 0, 0.55);
   color: var(--ink-2);
   font-size: 12px;
   line-height: 1.45;
@@ -535,10 +565,25 @@ button {
 .card {
   position: relative;
   border-radius: var(--r-card);
-  background: rgba(22, 22, 26, 0.72);
-  box-shadow: var(--card-shadow), inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--glass);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
   transition: transform 460ms var(--spring), box-shadow 220ms var(--ease);
+}
+
+/* Specular rim: brightest along the top-left edge, as if lit from above. */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 38%, rgba(255, 255, 255, 0.04) 70%, rgba(255, 255, 255, 0.12));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
 }
 
 .slot:hover .card,
@@ -554,7 +599,7 @@ button {
 
 /* Selection: a white ring with a hairline of darkness, like a focus halo. */
 .slot.selected .card {
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 0 4px var(--ring), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 48px -10px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 0 4px var(--ring), 0 0 28px 2px rgba(255, 255, 255, 0.12);
 }
 
 .label {
@@ -568,9 +613,11 @@ button {
   height: 22px;
   margin-top: 9px;
   padding: 0 4px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: 11.5px;
   font-weight: 500;
+  /* Keeps captions readable over bright windows behind the glass. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 0, 0, 0.45);
   transition: color 200ms, transform 460ms var(--spring);
 }
 
@@ -866,6 +913,7 @@ img.loaded + .shimmer {
   gap: 8px;
   padding: 24px;
   text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 18px rgba(0, 0, 0, 0.4);
   animation: pop 520ms var(--spring-soft) both;
 }
 
@@ -961,9 +1009,10 @@ img.loaded + .shimmer {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: 11.5px;
   white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .status .dot {
@@ -1016,8 +1065,8 @@ img.loaded + .shimmer {
   gap: 14px;
   padding: 7px 14px;
   border-radius: 999px;
-  background: rgba(14, 14, 17, 0.62);
-  box-shadow: inset 0 0 0 1px var(--line), 0 8px 30px rgba(0, 0, 0, 0.35);
+  background: var(--glass-strong);
+  box-shadow: var(--rim), 0 12px 32px -12px rgba(0, 0, 0, 0.55);
   color: var(--ink-3);
   font-size: 11.5px;
   white-space: nowrap;
@@ -1060,7 +1109,9 @@ img.loaded + .shimmer {
 .ql-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(4, 4, 7, 0.34);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   animation: fade-in 220ms var(--ease) both;
 }
 
@@ -1075,8 +1126,10 @@ img.loaded + .shimmer {
   width: min(100%, 1080px);
   height: min(100%, 760px);
   border-radius: 18px;
-  background: var(--sheet);
-  box-shadow: var(--shadow), inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%), var(--sheet);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  backdrop-filter: blur(30px) saturate(1.4);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   overflow: hidden;
   transform-origin: top left;
 }
@@ -1261,8 +1314,8 @@ img.loaded + .shimmer {
   padding: 0 12px;
   border: 0;
   border-radius: 9px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05));
+  box-shadow: var(--rim);
   color: var(--ink);
   font: 550 12.5px/1 var(--font-ui);
   cursor: pointer;
@@ -1280,7 +1333,7 @@ img.loaded + .shimmer {
 
 .btn.primary {
   padding-right: 7px;
-  background: var(--ink);
+  background: var(--pearl);
   color: var(--on-ink);
   box-shadow: none;
 }
@@ -1318,7 +1371,7 @@ img.loaded + .shimmer {
   gap: 8px;
   padding: 9px 14px;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--pearl);
   color: var(--on-ink);
   font-size: 12.5px;
   font-weight: 550;
@@ -1362,7 +1415,9 @@ img.loaded + .shimmer {
 .sheet-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.42);
+  background: rgba(4, 4, 7, 0.34);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   animation: fade-in 220ms var(--ease) both;
 }
 
@@ -1378,8 +1433,10 @@ img.loaded + .shimmer {
   width: min(100%, 760px);
   height: min(100%, 520px);
   border-radius: 18px;
-  background: var(--sheet);
-  box-shadow: var(--shadow), inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%), var(--sheet);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  backdrop-filter: blur(30px) saturate(1.4);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   overflow: hidden;
   user-select: text;
   animation: bubble 560ms var(--spring) both;
@@ -1875,6 +1932,31 @@ textarea:focus-visible {
     radial-gradient(45% 55% at 82% 30%, #5d7fd6 0%, transparent 70%),
     radial-gradient(50% 50% at 50% 92%, #3aa58c 0%, transparent 70%),
     linear-gradient(135deg, #2a3243, #1b1f2b);
+}
+
+/* Two stand-in "work" windows (a light document, a dark editor) so the
+   preview shows how much of the screen behind reads through the glass. */
+:root.mock body::before,
+:root.mock body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+:root.mock body::before {
+  inset: 8% 46% 14% 6%;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 22px, #2b2f38 22px 30px) 48px 90px / 70% calc(100% - 120px) no-repeat,
+    linear-gradient(#e8e9ec 0 44px, #f7f7f5 44px);
+}
+
+:root.mock body::after {
+  inset: 18% 5% 8% 50%;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 16px, #c678dd 16px 22px, transparent 22px 38px, #61afef 38px 44px, transparent 44px 60px, #98c379 60px 66px) 40px 60px / 55% calc(100% - 90px) no-repeat,
+    linear-gradient(#21252b 0 34px, #282c34 34px);
 }
 
 :root.mock .app {
