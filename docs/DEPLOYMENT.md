@@ -272,6 +272,6 @@ Out-of-range numbers are clamped and values of the wrong type are ignored.
 
 | | Uninstall | Delete history and settings |
 | --- | --- | --- |
-| Windows | Settings › Apps, or the commands above | `%APPDATA%\ClipDeck`, `%LOCALAPPDATA%\com.tanmayangarkar.clipdeck` |
+| Windows | Settings › Apps, the commands above, or [scripts/Uninstall-ClipDeck.cmd](../scripts/Uninstall-ClipDeck.cmd) (per-user installs; asks whether to keep your history) | `%APPDATA%\ClipDeck`, `%LOCALAPPDATA%\com.tanmayangarkar.clipdeck` |
 | macOS | Quit from the menu bar, delete ClipDeck.app | `~/Library/Application Support/ClipDeck`, `~/Library/LaunchAgents/com.tanmayangarkar.clipdeck.plist`, `~/Library/WebKit/com.tanmayangarkar.clipdeck`, `~/Library/Caches/com.tanmayangarkar.clipdeck`, Keychain item `com.tanmayangarkar.clipdeck` |
 | Linux | `sudo apt remove clip-deck`, `sudo dnf remove clip-deck`, or delete the AppImage | `~/.local/share/clipdeck`, `~/.local/share/com.tanmayangarkar.clipdeck`, `~/.config/autostart/clipdeck.desktop` |

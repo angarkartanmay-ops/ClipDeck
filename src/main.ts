@@ -1085,6 +1085,7 @@ function wireEvents(): void {
 
   media.reduce.addEventListener("change", () => applyMotion(settings));
 
+  void on<string>("paste-failed", (message) => recover(message));
   void on("history-changed", () => void loadItems("flip"));
   void on<Status>("status-changed", (s) => {
     status = s;
