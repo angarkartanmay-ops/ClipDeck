@@ -22,10 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: CLA Assistant
+        # The owner's own pull requests need no signature (the "Co-Authored-By"
+        # lines on AI-assisted commits would otherwise count as unsigned
+        # committers). Everyone else signs through the bot as before.
         if: >-
           github.event.comment.body == 'recheck' ||
           github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' ||
-          github.event_name == 'pull_request_target'
+          (github.event_name == 'pull_request_target' &&
+            github.event.pull_request.user.login != 'angarkartanmay-ops')
         uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

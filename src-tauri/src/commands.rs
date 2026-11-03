@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use base64::Engine;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::actions::{self, Status};
 use crate::dashboard;
@@ -48,6 +48,8 @@ pub fn paste_item(app: AppHandle, state: AppStateRef<'_>, id: i64, plain: bool) 
     std::thread::spawn(move || {
         if let Err(err) = actions::paste_item(&app, id, plain, target, true) {
             eprintln!("ClipDeck: paste: {err}");
+            // Let the deck recover instead of staying faded out.
+            let _ = app.emit("paste-failed", format!("Couldn't paste: {err}"));
         }
     });
 }
@@ -58,6 +60,7 @@ pub fn copy_item(app: AppHandle, state: AppStateRef<'_>, id: i64) {
     std::thread::spawn(move || {
         if let Err(err) = actions::paste_item(&app, id, false, None, true) {
             eprintln!("ClipDeck: copy: {err}");
+            let _ = app.emit("paste-failed", format!("Couldn't copy: {err}"));
         }
     });
 }
