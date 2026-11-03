@@ -1,5 +1,6 @@
 * text=auto eol=lf
 *.png binary
 *.ico binary
-*.cmd text eol=crlf
-*.bat text eol=crlf
+# Batch files must keep CRLF line endings in the repository itself.
+*.cmd -text
+*.bat -text
